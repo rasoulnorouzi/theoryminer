@@ -65,10 +65,11 @@ function downloads the sentence-transformer (`all-mpnet-base-v2` by default).
 ## Quick start
 
 ```python
-from theoryminer import harvest, causenet, clusterer, label_groups, standardize_constructs
+from theoryminer import harvest, extract_dois, causenet, clusterer, label_groups, standardize_constructs
 
 data = harvest("raw_data/my_book.pdf", pages="12-540")   # clean sentences + a drop log
 data = harvest("sample_files")                          # or every PDF in a folder
+dois = extract_dois("sample_files", save="outputs")     # the DOI of each paper -> outputs/dois.csv
 relations = causenet(data["sentences"])                 # one dict per cause → effect pair
 
 groups = clusterer(relations)                           # group similar spans (HDBSCAN)
