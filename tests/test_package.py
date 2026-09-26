@@ -18,3 +18,8 @@ def test_version_matches_pyproject():
         text = fh.read()
     version = re.search(r'^version = "([^"]+)"', text, re.M).group(1)
     assert theoryminer.__version__ == version
+
+
+def test_umap_is_installed_by_default():
+    import umap
+    assert hasattr(umap, "UMAP")

@@ -42,3 +42,37 @@ def test_unknown_strategy_raises():
 def test_unknown_taxonomy_raises():
     with pytest.raises(ValueError, match="unknown taxonomy 'apa'"):
         load_taxonomy("apa")
+
+
+def test_the_cache_folder_follows_the_environment_variable(monkeypatch, tmp_path):
+    from theoryminer.harmonizer.taxonomy import _cache_dir
+    monkeypatch.setenv("THEORYMINER_CACHE_DIR", str(tmp_path))
+    assert _cache_dir() == str(tmp_path)
+
+
+def test_the_default_cache_folder_is_outside_the_package(monkeypatch):
+    import os
+    import theoryminer
+    from theoryminer.harmonizer.taxonomy import _cache_dir
+    monkeypatch.delenv("THEORYMINER_CACHE_DIR", raising=False)
+    folder = _cache_dir()
+    assert folder.endswith(os.path.join(".cache", "theoryminer", "taxonomy"))
+    assert not folder.startswith(os.path.dirname(theoryminer.__file__))
+
+
+def test_the_cache_saves_the_vectors_and_the_entries(tmp_path):
+    import numpy as np
+    from theoryminer.harmonizer.taxonomy import _save_cache
+    ok = _save_cache(str(tmp_path / "new" / "v.npy"), np.ones((2, 3)), str(tmp_path / "new" / "e.json"), [{"leaf": "A"}])
+    assert ok
+    assert np.load(tmp_path / "new" / "v.npy").shape == (2, 3)
+    assert (tmp_path / "new" / "e.json").read_text(encoding="utf-8") == '[{"leaf": "A"}]'
+
+
+def test_a_cache_folder_that_cannot_be_written_does_not_stop_the_run(tmp_path):
+    import numpy as np
+    from theoryminer.harmonizer.taxonomy import _save_cache
+    blocker = tmp_path / "a_file"
+    blocker.write_text("a file, so no folder can be made below it")
+    ok = _save_cache(str(blocker / "sub" / "v.npy"), np.ones((2, 3)), str(blocker / "sub" / "e.json"), [])
+    assert ok is False

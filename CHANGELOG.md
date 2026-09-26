@@ -3,6 +3,21 @@
 Each release of `theoryminer` has one section. The newest release is first.
 The version numbers follow semantic versioning: before 1.0.0, a minor release (0.x.0) can change the API.
 
+## 0.1.1
+
+### Changed
+
+- `umap-learn` is installed by default. `pip install theoryminer` is enough for `clusterer(..., umap={...})`.
+  The old command `pip install "theoryminer[umap]"` still works.
+- The thesaurus vectors are saved in `~/.cache/theoryminer/taxonomy`, not inside the installed package.
+  The environment variable `THEORYMINER_CACHE_DIR` chooses another folder.
+
+### Fixed
+
+- A read-only install no longer fails on the first `standardize_constructs()` call. When the cache folder
+  cannot be written, the function prints one line and goes on without the cache.
+- `pip uninstall theoryminer` no longer leaves a cache folder in the package folder.
+
 ## 0.1.0 (first release on PyPI)
 
 ### Functions

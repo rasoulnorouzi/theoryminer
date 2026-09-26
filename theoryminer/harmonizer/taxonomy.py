@@ -15,8 +15,11 @@ entries. Every entry has the same shape, whatever the taxonomy:
      "alt": ["self-determination", ...], "note": "<scope note or definition>"}
 
 The embeddings of one (taxonomy, strategy, model, leaves) combination are
-computed on first use and saved to `theoryminer/taxonomy_cache/`. Later
-calls load the file. Delete the cache folder after a new taxonomy release.
+computed on first use and saved in the cache folder, CACHE_DIR. Later calls
+load the file. The folder is ~/.cache/theoryminer/taxonomy, or the folder in
+the environment variable THEORYMINER_CACHE_DIR. It is outside the installed
+package, so a read-only install works. When the folder cannot be written, the
+run goes on without the cache. Delete the folder after a new taxonomy release.
 
 Cache files are plain: `<tax>_<strategy>_<model>_<scope>.npy` holds the vectors
 (one row per entry, float32) and `<tax>_<scope>.json` holds the entries in the
@@ -33,11 +36,32 @@ import numpy as np
 
 from .embeddings import SHORTHAND, embed
 
-# The package folder. The thesaurus file and the vector cache live inside it,
-# so they work the same after "pip install" as in a clone of the repository.
+# The package folder holds the thesaurus file, so it works the same after
+# "pip install" as in a clone of the repository.
 _PACKAGE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(_PACKAGE, "data")
-CACHE_DIR = os.path.join(_PACKAGE, "taxonomy_cache")
+
+
+def _cache_dir():
+    """Return the folder for the thesaurus vectors.
+
+    The environment variable THEORYMINER_CACHE_DIR chooses the folder. Without it,
+    the folder is ~/.cache/theoryminer/taxonomy. The folder is outside the installed
+    package: a read-only install still works, and "pip uninstall" leaves nothing
+    behind in the package folder.
+
+    Example:
+        >>> _cache_dir().endswith(os.path.join(".cache", "theoryminer", "taxonomy"))   # doctest: +SKIP
+        True
+    """
+    folder = os.environ.get("THEORYMINER_CACHE_DIR")
+    if folder:
+        return folder
+    return os.path.join(os.path.expanduser("~"), ".cache", "theoryminer", "taxonomy")
+
+
+# The folder is read once, when the package is imported.
+CACHE_DIR = _cache_dir()
 
 STRATEGIES = ["leaf", "path", "anchor", "context", "bracket", "enriched"]
 
@@ -208,10 +232,36 @@ def taxonomy_embeddings(name="elsst", strategy="enriched", model="allmpnet",
           f"This runs once; later calls load {os.path.basename(path)}.")
     vectors = embed([strategy_text(e, strategy) for e in entries], model)
     if cache:
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        np.save(path, vectors.astype(np.float32))
         entries_path = os.path.join(CACHE_DIR, f"{tax_tag}_{scope}.json")
-        if not os.path.exists(entries_path):
-            with open(entries_path, "w", encoding="utf-8") as f:
-                json.dump(entries, f, ensure_ascii=False)
+        _save_cache(path, vectors, entries_path, entries)
     return entries, vectors
+
+
+def _write_entries(entries_path, entries):
+    """Write the entry list beside the vectors, once. R and other tools can read it."""
+    if os.path.exists(entries_path):
+        return
+    with open(entries_path, "w", encoding="utf-8") as fh:
+        json.dump(entries, fh, ensure_ascii=False)
+
+
+def _save_cache(path, vectors, entries_path, entries):
+    """Save the vectors and the entries. Return True, or False when the folder cannot be written.
+
+    A folder that cannot be written must not stop the run. The vectors stay in
+    memory for this call, and the next session computes them again.
+
+    Example:
+        >>> _save_cache("/proc/no_such_folder/x.npy", np.zeros((1, 2)), "/proc/no_such_folder/x.json", [])   # doctest: +SKIP
+        taxonomy: cannot save the cache in /proc/no_such_folder (...); the run goes on without it. ...
+        False
+    """
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        np.save(path, vectors.astype(np.float32))
+        _write_entries(entries_path, entries)
+    except OSError as error:
+        print(f"taxonomy: cannot save the cache in {os.path.dirname(path)} ({error}); "
+              f"the run goes on without it. Set THEORYMINER_CACHE_DIR to a folder that you can write.")
+        return False
+    return True

@@ -137,8 +137,8 @@ jobs:
         with:
           path: |
             ~/.cache/huggingface
-            theoryminer/taxonomy_cache
-          key: models-v1-${{ hashFiles('theoryminer/data/ELSST_R5.rdf.gz') }}
+            ~/.cache/theoryminer
+          key: models-v2-${{ hashFiles('theoryminer/data/ELSST_R5.rdf.gz') }}
 
       - name: Run the slow tests
         run: python -m pytest -m slow

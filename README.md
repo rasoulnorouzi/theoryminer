@@ -31,8 +31,9 @@ Install from PyPI with pip:
 
 ```bash
 pip install theoryminer
-pip install "theoryminer[umap]"      # with UMAP before clustering
 ```
+
+The install includes UMAP for `clusterer(..., umap={...})`.
 
 The newest code on GitHub, before the next release:
 
@@ -101,7 +102,9 @@ Give `harvest()` your own PDFs. In a clone, `raw_data/` is a good place for them
 The ELSST thesaurus (release 5) ships inside the package as `theoryminer/data/ELSST_R5.rdf.gz`.
 `taxonomy="elsst"` needs no extra file. A full path to another SKOS `.rdf` or `.rdf.gz` file also
 works as `taxonomy=`. The thesaurus vectors are computed once and cached in
-`theoryminer/taxonomy_cache/`.
+`~/.cache/theoryminer/taxonomy`. Set the environment variable `THEORYMINER_CACHE_DIR` to use
+another folder. If the folder cannot be written, the functions still work; they only compute the
+vectors again in the next session.
 `label_groups()` needs no thesaurus at all.
 
 ## Documentation
