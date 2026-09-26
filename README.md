@@ -1,5 +1,6 @@
 # theoryminer
 
+[![PyPI](https://img.shields.io/pypi/v/theoryminer)](https://pypi.org/project/theoryminer/)
 [![CI](https://github.com/rasoulnorouzi/theoryminer/actions/workflows/ci.yml/badge.svg)](https://github.com/rasoulnorouzi/theoryminer/actions/workflows/ci.yml)
 [![Open the tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rasoulnorouzi/theoryminer/blob/main/tutorials/TUTORIAL.ipynb)
 
@@ -26,11 +27,17 @@ evaluation are planned.
 
 ## Install
 
-Install from GitHub with pip. You do not need to clone the repository:
+Install from PyPI with pip:
+
+```bash
+pip install theoryminer
+pip install "theoryminer[umap]"      # with UMAP before clustering
+```
+
+The newest code on GitHub, before the next release:
 
 ```bash
 pip install "theoryminer @ git+https://github.com/rasoulnorouzi/theoryminer.git"
-pip install "theoryminer[umap] @ git+https://github.com/rasoulnorouzi/theoryminer.git"   # with UMAP
 ```
 
 In a notebook, such as Google Colab, put `%pip install` at the start of the first cell.
