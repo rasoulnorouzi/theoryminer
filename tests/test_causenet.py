@@ -13,8 +13,11 @@ def test_cpu_gives_cpu():
 
 
 def test_auto_follows_the_gpu():
+    # The same order as the code: an NVIDIA GPU, else an Apple GPU (the macOS runner has one), else the CPU.
     if torch.cuda.is_available():
         assert _pick_device("auto") == "cuda"
+    elif torch.backends.mps.is_available():
+        assert _pick_device("auto") == "mps"
     else:
         assert _pick_device("auto") == "cpu"
 
