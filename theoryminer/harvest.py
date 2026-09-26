@@ -70,6 +70,16 @@ RE_LABEL = re.compile(r"^\s*(?:(?:key\s*words?|keywords?|source|notes?|abstract)
 RE_SEEALSO = re.compile(r"^\s*See also\b", re.I)
 RE_PAGERANGE = re.compile(r"\d+[-]\d+")
 
+# Front matter from a journal sidebar that the PDF extractor mixed into a sentence:
+# editor and reviewer labels, dates, an e-mail address, an ORCID link.
+# Matches:  "... increased EFL Reviewed by: Zhengdong Gan, University of Macau ..."
+# No match: "The review showed that support increased motivation."
+RE_FRONT_MATTER = re.compile(
+    r"\b(?:edited by|reviewed by|correspondence|specialty section|received|accepted|published|citation):"
+    r"|orcid\.org"
+    r"|\b[\w.+-]+@[\w-]+\.[\w.]+",
+    re.I)
+
 # Abbreviations for the sentence splitter, so "e.g." does not end a sentence.
 ABBREV = """e.g i.e cf al vs viz etc resp approx fig figs tab eq ch chap sec no vol
 pp p ed eds trans repr rev suppl dr prof mr mrs ms st jr sr univ dept inc ltd
@@ -338,7 +348,15 @@ def strip_stats(rows):
 
 
 def drop_junk_sentences(rows):
-    """Drop structural junk sentences. Flag the ambiguous ones and keep them."""
+    """Drop structural junk sentences. Flag the ambiguous ones and keep them.
+
+    The flags are:
+        front_matter  the sentence holds journal sidebar text (RE_FRONT_MATTER),
+                      for example an editor name. The sentence may still hold real text.
+        fragment      the sentence has no final punctuation.
+        long          the sentence has more than LONG_FLAG words.
+    Leave the flagged sentences out before causenet() when you do not want them.
+    """
     for r in rows:
         if not r["kept"]:
             continue
@@ -362,6 +380,8 @@ def drop_junk_sentences(rows):
         elif sum(c.isdigit() for c in text) / max(len(text), 1) > MAX_DIGIT:
             r["kept"] = False
             r["drop_reason"] = "digit_heavy"
+        elif RE_FRONT_MATTER.search(text):
+            r["flag"] = "front_matter"
         elif not RE_TERMINAL.search(text.strip()):
             r["flag"] = "fragment"
         elif len(words) > LONG_FLAG:
@@ -657,7 +677,7 @@ def _harvest_folder(folder, settings):
     rows = []
     doc_number = 0
     for i, path in enumerate(pdf_paths):
-        print(f"\r  reading PDF {i + 1} of {len(pdf_paths)}", end="")
+        print(f"\r  reading .pdf file {i + 1} of {len(pdf_paths)}", end="")
         try:
             doc_rows = _harvest_one(path, doc_number, settings)
         except ValueError as error:
@@ -670,22 +690,35 @@ def _harvest_folder(folder, settings):
 
 
 def _print_summary(source, kept, dropped):
-    """Print one short summary of a harvest() run."""
-    doc_counts = collections.Counter(r["doc_id"] for r in kept)
-    skipped = [r for r in dropped if r["page"] == 0]
-    reasons = collections.Counter(r["drop_reason"] for r in dropped)
+    """Print one short summary of a harvest() run: first the files, then the text.
 
+    A dropped row with page 0 stands for a whole file that the run skipped.
+    Every other dropped row is a line or a sentence that a cleaning step removed.
+    """
+    skipped = [r for r in dropped if r["page"] == 0]
+    text_dropped = [r for r in dropped if r["page"] != 0]
+
+    # 1. The files. A file counts as read when it gave at least one row of text.
+    read_docs = set()
+    for row in kept + text_dropped:
+        read_docs.add(row["doc_id"])
     print(f"harvest: {source}")
-    print(f"  documents read: {len(doc_counts)} | files skipped: {len(skipped)}")
-    print(f"  sentences kept: {len(kept):,} | dropped rows: {len(dropped):,}")
+    print(f"  files: {len(read_docs) + len(skipped)} | read: {len(read_docs)} | skipped: {len(skipped)}")
+    for row in skipped:
+        print(f"    skipped: {row['text']} ({row['drop_reason']})")
+
+    # 2. The text of the files that were read.
+    print(f"  text: {len(kept):,} sentences kept | {len(text_dropped):,} rows dropped")
+    reasons = collections.Counter(r["drop_reason"] for r in text_dropped)
     for reason, n in reasons.most_common():
         print(f"  {n:>8,}  {reason}")
-    if len(doc_counts) > 1:
-        print("  sentences per document:")
-        for doc_id, n in sorted(doc_counts.items()):
-            print(f"  {n:>8,}  {doc_id}")
-    for row in skipped:
-        print(f"  skipped: {row['text']}")
+
+    # 3. The sentences of each file, when there is more than one file.
+    if len(read_docs) > 1:
+        doc_counts = collections.Counter(r["doc_id"] for r in kept)
+        print("  sentences per file:")
+        for doc_id in sorted(read_docs):
+            print(f"  {doc_counts[doc_id]:>8,}  {doc_id}")
 
 
 def harvest(source, pages=None, skip_pages=None, steps=None,

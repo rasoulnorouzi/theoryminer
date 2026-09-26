@@ -8,6 +8,7 @@ The tests use the papers in sample_files/. They make the bad files in a
 temporary folder. No test loads a model, so the tests take seconds.
 """
 
+import json
 import os
 import shutil
 
@@ -139,3 +140,15 @@ def test_page_cache_stands_in_for_a_missing_pdf(tmp_path):
     data = harvest(fake_pdf)
     assert data["sentences"][0]["clean"] == "Autonomy support increases intrinsic motivation in students."
     assert data["sentences"][0]["sent_id"] == "d000p0000s000"
+
+
+def test_sidebar_text_gets_the_front_matter_flag(tmp_path):
+    fake_pdf = os.path.join(tmp_path, "toy.pdf")
+    page = ("Support increased EFL Reviewed by: Zhengdong Gan, University of Macau, motivation.\n"
+            "\n"
+            "Autonomy support increases intrinsic motivation in students.\n")
+    with open(fake_pdf + ".pages.json", "w") as fh:
+        json.dump({"1": page}, fh)
+    data = harvest(fake_pdf)
+    flags = [s["flag"] for s in data["sentences"]]
+    assert flags == ["front_matter", ""]

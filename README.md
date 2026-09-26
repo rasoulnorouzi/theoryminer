@@ -43,6 +43,21 @@ cd theoryminer
 pip install -e ".[notebooks,dev,umap]"
 ```
 
+### GPU
+
+You do not need to set anything. `causenet(sentences)` uses `device="auto"`: an NVIDIA GPU when
+PyTorch can see one, else the GPU of an Apple Silicon Mac, else the CPU. `device="cpu"`,
+`"cuda"` or `"mps"` choose one device.
+
+- **Google Colab:** choose a GPU runtime (Runtime → Change runtime type → T4 GPU). Colab already
+  has a GPU build of PyTorch, so pip installs nothing extra.
+- **Linux with an NVIDIA GPU:** the normal PyTorch from pip includes GPU support.
+- **Windows with an NVIDIA GPU:** pip gives a CPU-only PyTorch there. The package then runs on
+  the CPU, without errors. For the GPU, install PyTorch from https://pytorch.org first, then
+  install `theoryminer`.
+- **Apple Silicon Mac:** `"auto"` uses the Apple GPU. If the model fails there, it moves to the
+  CPU and the run goes on.
+
 The first call to `causenet()` downloads the SocioCausaNet model
 (`rasoultilburg/SocioCausaNet`) from the Hugging Face Hub. The first call to a harmonizer
 function downloads the sentence-transformer (`all-mpnet-base-v2` by default).
