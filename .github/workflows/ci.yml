@@ -1,0 +1,144 @@
+# CI: test every push to main and every pull request. This workflow never publishes.
+#
+# Three jobs:
+#   fast   the fast tests (no model download) on Linux, Windows and macOS
+#   build  build the package, check it, install the built wheel outside the repository and use it
+#   slow   the tests that load the real models; not on pull requests, and every Monday
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:           # a "Run workflow" button on the Actions tab
+  schedule:
+    - cron: "0 5 * * 1"        # every Monday at 05:00 UTC: finds changes in the models or the libraries
+
+permissions:
+  contents: read
+
+# A new push stops the run that is still busy with an older push of the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    name: fast tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false         # one failed system does not stop the other systems
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python: "3.12"
+          - os: macos-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # On Linux, the PyTorch from PyPI holds the GPU libraries (about 2 GB). CI has no GPU,
+      # so the CPU build is enough and much faster. On Windows and macOS, PyPI gives a CPU build.
+      - name: Install the CPU build of PyTorch
+        if: runner.os == 'Linux'
+        run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install the package and pytest
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run the fast tests
+        run: python -m pytest
+
+  build:
+    name: build and check the package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the wheel and the source package
+        run: |
+          python -m pip install build twine
+          python -m build
+
+      - name: Check that PyPI can show the package description
+        run: python -m twine check --strict dist/*
+
+      - name: Check that the wheel holds the ELSST file and its licence
+        run: |
+          python -m zipfile -l dist/*.whl > wheel_files.txt
+          grep "theoryminer/data/ELSST_R5.rdf.gz" wheel_files.txt
+          grep "theoryminer/data/ELSST_LICENSE.md" wheel_files.txt
+
+      # A user installs the wheel, not this folder. So install the built wheel in a new
+      # environment and use it from another folder, where the repository cannot help.
+      - name: Install the built wheel in a clean environment and use it
+        run: |
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          /tmp/wheel-env/bin/python -m pip install dist/*.whl
+          cd /tmp
+          /tmp/wheel-env/bin/python -c "
+          import theoryminer
+          from theoryminer import harvest, extract_dois
+          from theoryminer.harmonizer.taxonomy import load_taxonomy
+          print('version', theoryminer.__version__)
+          assert len(load_taxonomy('elsst')) == 2661
+          pdf = '${{ github.workspace }}/sample_files/barrech_2018_job_insecurity_health.pdf'
+          assert len(harvest(pdf, cache=False)['sentences']) > 100
+          assert extract_dois(pdf, cache=False)[0]['doi'] == '10.1186/s12889-018-5621-4'
+          print('the installed wheel works')
+          "
+
+      - name: Keep the built files for 14 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 14
+
+  slow:
+    name: slow tests (real models)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install the CPU build of PyTorch
+        run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install the package and pytest
+        run: python -m pip install -e ".[dev]"
+
+      # The models (about 1 GB) and the ELSST vectors are kept between runs.
+      - name: Keep the models and the thesaurus vectors between runs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            theoryminer/taxonomy_cache
+          key: models-v1-${{ hashFiles('theoryminer/data/ELSST_R5.rdf.gz') }}
+
+      - name: Run the slow tests
+        run: python -m pytest -m slow

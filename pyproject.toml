@@ -4,13 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "theoryminer"
-version = "0.0.1"
+version = "0.1.0"
 description = "Assemble theories from text: extract cause-effect claims and harmonise their constructs."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Rasoul Norouzi" }]
 license = "MIT"
 license-files = ["LICENSE"]
+keywords = ["causal extraction", "theory building", "social science", "NLP", "PDF", "ELSST", "DOI"]
+# No "License ::" classifier: the licence is given above as an SPDX expression (PEP 639).
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Sociology",
+    "Topic :: Text Processing :: Linguistic",
+]
 dependencies = [
     "numpy",
     "scipy",
@@ -28,7 +43,11 @@ notebooks = ["pandas", "ipykernel"]
 dev = ["pytest"]
 
 [project.urls]
+Homepage = "https://github.com/rasoulnorouzi/theoryminer"
 Repository = "https://github.com/rasoulnorouzi/theoryminer"
+Tutorial = "https://github.com/rasoulnorouzi/theoryminer/blob/main/tutorials/TUTORIAL.ipynb"
+Issues = "https://github.com/rasoulnorouzi/theoryminer/issues"
+Changelog = "https://github.com/rasoulnorouzi/theoryminer/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["theoryminer*"]
@@ -36,3 +55,9 @@ include = ["theoryminer*"]
 # The ELSST thesaurus ships inside the package, so pip users need no extra file.
 [tool.setuptools.package-data]
 theoryminer = ["data/*"]
+
+# A plain "pytest" runs the fast tests only. "pytest -m slow" runs the tests that download models.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not slow'"
+markers = ["slow: downloads SocioCausaNet and a sentence-transformer (about 1 GB); run with: pytest -m slow"]

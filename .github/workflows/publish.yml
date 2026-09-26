@@ -1,0 +1,85 @@
+# Publish to PyPI. This workflow starts only when a GitHub Release is published.
+# A normal push never publishes.
+#
+# How to release:
+#   1. Set the new version in pyproject.toml (for example 0.1.0), commit and push. Wait for a green CI.
+#   2. GitHub -> Releases -> Draft a new release -> tag v0.1.0 -> Generate release notes -> Publish release.
+#   3. Actions tab -> this run -> "Review deployments" -> approve. Then the upload starts.
+#
+# PyPI trusts this workflow through Trusted Publishing: no token or password is stored.
+# The PyPI publisher settings name this file (publish.yml) and the environment "pypi".
+# Do not rename the file or the environment, or PyPI refuses the upload.
+
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: test and build the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # A version on PyPI can be used only once. So stop before anything is built when the
+      # tag and pyproject.toml disagree, for example tag v0.1.0 with version = "0.0.1".
+      - name: Check that the release tag is v plus the version in pyproject.toml
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "tag: ${GITHUB_REF_NAME} | pyproject.toml: ${VERSION}"
+          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} does not match the version ${VERSION}. Use the tag v${VERSION}, or change pyproject.toml."
+            exit 1
+          fi
+
+      - name: Install the CPU build of PyTorch
+        run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install the package and run the fast tests
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pytest
+
+      - name: Build the wheel and the source package, and check them
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check --strict dist/*
+          python -m zipfile -l dist/*.whl | grep "theoryminer/data/ELSST_R5.rdf.gz"
+
+      - name: Keep the built files for the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: upload to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The environment "pypi" has required reviewers: the job waits here for your approval.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/theoryminer/
+    permissions:
+      id-token: write          # Trusted Publishing: GitHub proves to PyPI where the upload comes from
+    steps:
+      - name: Get the built files
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Upload to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

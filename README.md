@@ -1,5 +1,6 @@
 # theoryminer
 
+[![CI](https://github.com/rasoulnorouzi/theoryminer/actions/workflows/ci.yml/badge.svg)](https://github.com/rasoulnorouzi/theoryminer/actions/workflows/ci.yml)
 [![Open the tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rasoulnorouzi/theoryminer/blob/main/tutorials/TUTORIAL.ipynb)
 
 Assemble theories from text. `theoryminer` reads a PDF, finds the sentences that make causal
@@ -115,10 +116,24 @@ The notebooks work from `tutorials/` and from the repository root. The examples 
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/
+pytest                 # the fast tests: no model download, a few seconds
+pytest -m slow         # the tests that load the real models (about 1 GB on the first run)
 ```
 
-The tests check `harvest()` on the sample papers and on broken files. They load no model.
+GitHub Actions runs the fast tests on each push, on Linux, Windows and macOS. It also builds the
+package and tests the built wheel. The slow tests run on each push to `main` and every Monday.
+
+## Releases
+
+A push to `main` never publishes. A release goes to PyPI in three steps:
+
+1. Set the new version in `pyproject.toml`, add a section to `CHANGELOG.md`, push, and wait for a green CI.
+2. On GitHub: **Releases → Draft a new release**, tag `v` plus the version (for example `v0.1.0`),
+   **Generate release notes**, **Publish release**.
+3. In the Actions tab, open the "Publish to PyPI" run and approve it (**Review deployments**).
+
+The workflow stops when the tag and the version differ. PyPI trusts the workflow through Trusted
+Publishing, so no token is stored in the repository.
 
 ## Licence
 
