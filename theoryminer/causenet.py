@@ -3,18 +3,23 @@
 One call does the full job:
 
     from theoryminer import harvest, causenet
-    data = harvest("codes/raw_data/my_book.pdf")
+    data = harvest("raw_data/my_book.pdf")
     relations = causenet(data["sentences"])
 
 The function wraps the SocioCausaNet model (rasoultilburg/SocioCausaNet).
-It loads the model and the tokenizer once per session, picks the device,
-and batches the input. It writes no files. Keep the returned list in a
-variable; a full book takes long on CPU, so do not throw the result away.
+It loads the model and the tokenizer once per session, puts the model on
+the device you ask for ("auto", "cpu" or "cuda"), and batches the input.
+It writes no files. Keep the returned list in a variable: a full book takes
+long on a CPU, so do not throw the result away.
 """
 
 import time
 
 from .harmonizer.spans import tidy_span
+
+# The permitted values of the device setting.
+# "auto" uses the GPU when torch can see one, and the CPU otherwise.
+DEVICES = ["auto", "cpu", "cuda"]
 
 # The model loads once and stays in memory for the next calls.
 _MODEL = None
@@ -22,25 +27,70 @@ _TOKENIZER = None
 _DEVICE = None
 
 
-def _load_model():
-    """Load SocioCausaNet and its tokenizer. Keep them for later calls."""
+def _pick_device(device):
+    """Return the torch device for the device setting: "cpu" or "cuda".
+
+    Args:
+        device: "auto", "cpu" or "cuda". "auto" gives "cuda" when torch can
+            see a GPU, and "cpu" otherwise.
+
+    Returns:
+        "cpu" or "cuda".
+
+    Raises:
+        ValueError: The setting is unknown, or it is "cuda" and torch sees no GPU.
+
+    Example:
+        >>> _pick_device("cpu")
+        'cpu'
+    """
+    import torch
+    if device not in DEVICES:
+        raise ValueError(f"unknown device {device!r}; choose one of {DEVICES}")
+    if device == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+    if device == "cuda" and not torch.cuda.is_available():
+        raise ValueError("device 'cuda' was asked for, but torch sees no GPU; "
+                         "use device='cpu' or device='auto'")
+    return device
+
+
+def _load_model(device="auto"):
+    """Load SocioCausaNet and its tokenizer once, and put the model on the device.
+
+    The first call loads the model. A later call with another device moves
+    the model that is already in memory. It does not load it again.
+
+    Args:
+        device: "auto", "cpu" or "cuda", as in causenet().
+
+    Returns:
+        (model, tokenizer).
+    """
     global _MODEL, _TOKENIZER, _DEVICE
+    wanted = _pick_device(device)
+
     if _MODEL is None:
-        import torch
         from transformers import AutoModel, AutoTokenizer
         print("causenet: loading rasoultilburg/SocioCausaNet ...")
         _MODEL = AutoModel.from_pretrained("rasoultilburg/SocioCausaNet",
                                            trust_remote_code=True)
         _TOKENIZER = AutoTokenizer.from_pretrained("rasoultilburg/SocioCausaNet",
                                                    trust_remote_code=True)
-        _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-        _MODEL.to(_DEVICE).eval()
+        _MODEL.eval()
+
+    # The model's predict() sends each batch to the device of the model itself.
+    if wanted != _DEVICE:
+        _MODEL.to(wanted)
+        _DEVICE = wanted
         print("causenet: device =", _DEVICE)
     return _MODEL, _TOKENIZER
 
 
 def causenet(sentences, threshold=0.8, mode="neural", decision="cls+span",
-             batch_size=64):
+             batch_size=64, device="auto"):
     """Find cause-effect pairs in the sentences.
 
     Args:
@@ -51,7 +101,10 @@ def causenet(sentences, threshold=0.8, mode="neural", decision="cls+span",
             or "heuristic".
         decision: What makes a sentence causal: "cls+span", "cls_only",
             or "span_only".
-        batch_size: Sentences per model call.
+        batch_size: Sentences per model call. On a GPU a larger value is
+            usually faster. Lower it after a CUDA "out of memory" error.
+        device: Where the model runs: "auto" (the GPU when torch can see one,
+            else the CPU), "cpu" or "cuda".
 
     Returns:
         A list of dicts, one per relation, with the keys:
@@ -66,7 +119,7 @@ def causenet(sentences, threshold=0.8, mode="neural", decision="cls+span",
         else:
             rows.append(s)
 
-    model, tokenizer = _load_model()
+    model, tokenizer = _load_model(device)
 
     # Run the model in batches.
     preds = []
