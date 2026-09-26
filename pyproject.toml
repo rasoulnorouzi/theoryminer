@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,6 +9,8 @@ description = "Assemble theories from text: extract cause-effect claims and harm
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Rasoul Norouzi" }]
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "numpy",
     "scipy",
@@ -25,5 +27,12 @@ umap = ["umap-learn"]               # clusterer(..., umap={...})
 notebooks = ["pandas", "ipykernel"]
 dev = ["pytest"]
 
+[project.urls]
+Repository = "https://github.com/rasoulnorouzi/theoryminer"
+
 [tool.setuptools.packages.find]
 include = ["theoryminer*"]
+
+# The ELSST thesaurus ships inside the package, so pip users need no extra file.
+[tool.setuptools.package-data]
+theoryminer = ["data/*"]

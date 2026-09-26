@@ -3,8 +3,9 @@
     from theoryminer.harmonizer.taxonomy import taxonomy_embeddings
     entries, vectors = taxonomy_embeddings("elsst", strategy="enriched", model="allmpnet")
 
-One thesaurus is built in: "elsst" (ELSST R5, SKOS/RDF). A path to another
-SKOS .rdf file with the same layout also works.
+One thesaurus is built in: "elsst" (ELSST R5, SKOS/RDF). The package holds it
+as theoryminer/data/ELSST_R5.rdf.gz (CC BY-SA 4.0, see ELSST_LICENSE.md there).
+A path to another SKOS .rdf or .rdf.gz file with the same layout also works.
 
 One entry is one root-to-leaf path. A concept with two parents gives two
 entries. Every entry has the same shape, whatever the taxonomy:
@@ -22,6 +23,7 @@ Cache files are plain: `<tax>_<strategy>_<model>_<scope>.npy` holds the vectors
 same row order. Both open in R (RcppCNPy::npyLoad, jsonlite::fromJSON).
 """
 
+import gzip
 import html
 import json
 import os
@@ -31,10 +33,10 @@ import numpy as np
 
 from .embeddings import SHORTHAND, embed
 
-# The package folder, and the repository root one level above it.
+# The package folder. The thesaurus file and the vector cache live inside it,
+# so they work the same after "pip install" as in a clone of the repository.
 _PACKAGE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_ROOT = os.path.dirname(_PACKAGE)
-RAW_DATA = os.path.join(_ROOT, "raw_data")
+DATA_DIR = os.path.join(_PACKAGE, "data")
 CACHE_DIR = os.path.join(_PACKAGE, "taxonomy_cache")
 
 STRATEGIES = ["leaf", "path", "anchor", "context", "bracket", "enriched"]
@@ -84,9 +86,23 @@ def _entries(concepts, leaves_only):
     return entries
 
 
+def _read_text(path):
+    """Return the text of a file. A file whose name ends with ".gz" is unpacked first.
+
+    Example:
+        >>> _read_text(DEFAULT_FILES["elsst"])[:38]
+        '<?xml version="1.0" encoding="UTF-8"?>'
+    """
+    if path.endswith(".gz"):
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            return fh.read()
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
 def _load_elsst(path, leaves_only):
     """Parse the ELSST SKOS/RDF file and return the list of entries."""
-    text = open(path, encoding="utf-8").read()
+    text = _read_text(path)
     blocks = re.findall(r'<rdf:Description[^>]*rdf:about="([^"]+)"(.*?)</rdf:Description>',
                         text, re.S)
     re_pref = re.compile(r'<skos:prefLabel xml:lang="en">(.*?)</skos:prefLabel>', re.S)
@@ -116,13 +132,13 @@ def _load_elsst(path, leaves_only):
 
 
 LOADERS = {"elsst": _load_elsst}
-DEFAULT_FILES = {"elsst": os.path.join(RAW_DATA, "ELSST_R5.rdf")}
+DEFAULT_FILES = {"elsst": os.path.join(DATA_DIR, "ELSST_R5.rdf.gz")}
 
 
 def load_taxonomy(name, leaves_only=True):
     """Return the entries of a taxonomy.
 
-    `name` is "elsst", or a path to a SKOS .rdf file with the ELSST layout.
+    `name` is "elsst", or a path to a SKOS .rdf or .rdf.gz file with the ELSST layout.
     """
     key = (name, leaves_only)
     if key in _LOADED:
@@ -133,7 +149,7 @@ def load_taxonomy(name, leaves_only=True):
         _LOADED[key] = _load_elsst(name, leaves_only)
     else:
         raise ValueError(f"unknown taxonomy {name!r}; choose one of {list(LOADERS)} "
-                         f"or give the path of a SKOS .rdf file")
+                         f"or give the path of a SKOS .rdf or .rdf.gz file")
     return _LOADED[key]
 
 

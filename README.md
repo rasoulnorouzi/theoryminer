@@ -1,5 +1,7 @@
 # theoryminer
 
+[![Open the tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rasoulnorouzi/theoryminer/blob/main/tutorials/TUTORIAL.ipynb)
+
 Assemble theories from text. `theoryminer` reads a PDF, finds the sentences that make causal
 claims, extracts each cause → effect pair, and brings the many ways authors name the same
 construct together, with a thesaurus (ELSST) or without one.
@@ -23,10 +25,22 @@ evaluation are planned.
 
 ## Install
 
+Install from GitHub with pip. You do not need to clone the repository:
+
 ```bash
-git clone <this repository>
+pip install "theoryminer @ git+https://github.com/rasoulnorouzi/theoryminer.git"
+pip install "theoryminer[umap] @ git+https://github.com/rasoulnorouzi/theoryminer.git"   # with UMAP
+```
+
+In a notebook, such as Google Colab, put `%pip install` at the start of the first cell.
+The tutorial notebook does this for you: click the Colab badge above.
+
+To change the code, clone the repository and install it in editable mode:
+
+```bash
+git clone https://github.com/rasoulnorouzi/theoryminer.git
 cd theoryminer
-pip install -e ".[notebooks]"         # add ,umap for UMAP before clustering
+pip install -e ".[notebooks,dev,umap]"
 ```
 
 The first call to `causenet()` downloads the SocioCausaNet model
@@ -58,15 +72,12 @@ The tutorial and the tests use them.
 
 ## Data you supply
 
-Nothing in `raw_data/` is committed. Put your files there:
+Give `harvest()` your own PDFs. In a clone, `raw_data/` is a good place for them: git ignores it.
 
-| file | needed for | where to get it |
-|---|---|---|
-| your PDFs | `harvest()` | your own sources |
-| `ELSST_R5.rdf` | `taxonomy="elsst"` | ELSST release 5, SKOS/RDF, from https://elsst.cessda.eu (check its licence terms) |
-
-A full path to another SKOS `.rdf` file also works as `taxonomy=`.
-The thesaurus vectors are computed once and cached in `theoryminer/taxonomy_cache/`.
+The ELSST thesaurus (release 5) ships inside the package as `theoryminer/data/ELSST_R5.rdf.gz`.
+`taxonomy="elsst"` needs no extra file. A full path to another SKOS `.rdf` or `.rdf.gz` file also
+works as `taxonomy=`. The thesaurus vectors are computed once and cached in
+`theoryminer/taxonomy_cache/`.
 `label_groups()` needs no thesaurus at all.
 
 ## Documentation
@@ -92,3 +103,12 @@ pytest tests/
 ```
 
 The tests check `harvest()` on the sample papers and on broken files. They load no model.
+
+## Licence
+
+The code has the MIT licence. See `LICENSE`.
+
+Two kinds of data in this repository keep their own licence:
+
+- `theoryminer/data/ELSST_R5.rdf.gz`: ELSST, © CESSDA, CC BY-SA 4.0. See `theoryminer/data/ELSST_LICENSE.md`.
+- `sample_files/*.pdf`: open-access papers, CC BY 4.0. See `sample_files/SOURCES.md`.
