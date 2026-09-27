@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<!-- The page of theoryminer.draw_map(). Python fills in four placeholders: the title, Cytoscape.js,
+     the fcose layout and the data. Do not write a placeholder name in a comment: it would be filled too. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>__TITLE__</title>
+<style>
+  :root { --ink: #1d2433; --muted: #5b6475; --rule: #d9dee7; --panel: #f7f8fb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; color: var(--ink); background: #fff;
+         height: 100vh; display: flex; flex-direction: column; }
+  #bar { display: flex; gap: 6px 16px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+  #bar b { font-size: 15px; }
+  #bar input[type=search] { padding: 3px 8px; border: 1px solid var(--rule); border-radius: 6px; width: 160px; }
+  #bar select, #bar button { font: inherit; padding: 2px 6px; }
+  .group { display: inline-flex; gap: 6px; align-items: center; }
+  .export { border-left: 1px solid var(--rule); padding-left: 14px; }
+  #count { color: var(--muted); }
+  #main { display: flex; flex: 1; min-height: 0; }
+  #cy { flex: 1; min-width: 0; }
+  #panel { width: 300px; border-left: 1px solid var(--rule); background: var(--panel); padding: 12px 14px; overflow-y: auto; }
+  #panel h3 { margin: 0 0 4px; font-size: 15px; }
+  #panel .meta { color: var(--muted); margin-bottom: 10px; }
+  #panel .ev { margin: 0 0 10px; padding: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 6px; }
+  #panel .src { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  #hover { position: fixed; pointer-events: none; max-width: 420px; background: #fff; border: 1px solid #b9c5d8;
+           border-radius: 6px; padding: 8px 10px; box-shadow: 0 4px 14px rgba(0,0,0,.15); font-size: 13px; display: none; z-index: 10; }
+  #hover .src { color: var(--muted); font-size: 12px; }
+  .legend span { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 8px; vertical-align: middle; }
+  /* A narrow page, for example a notebook cell: the panel goes below the map. */
+  @media (max-width: 900px) {
+    #main { flex-direction: column; }
+    #panel { width: auto; height: 200px; border-left: none; border-top: 1px solid var(--rule); }
+  }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>__TITLE__</b>
+  <span class="group">Search <input type="search" id="search" placeholder="a construct"></span>
+  <span class="group">min papers <input type="range" id="minpapers" min="1" value="1"> <span id="minpapersval">1</span></span>
+  <span class="group">min relations <input type="range" id="minrelations" min="1" value="1"> <span id="minrelationsval">1</span></span>
+  <label class="group"><input type="checkbox" id="loops" checked> self-loops</label>
+  <button id="arrange">Re-arrange</button>
+  <span id="count"></span>
+  <span class="group export">Save picture
+    <select id="format"><option value="png">PNG</option><option value="jpg">JPG</option><option value="svg">SVG</option></select>
+    <select id="scale"><option value="1">1×</option><option value="2">2×</option><option value="4" selected>4×</option></select>
+    <select id="scope"><option value="whole">whole map</option><option value="view">current view</option><option value="selection">selection</option></select>
+    <button id="save">Save</button></span>
+  <span class="legend"><span style="background:#2a9d8f"></span>cause only<span style="background:#457b9d"></span>cause and effect<span style="background:#e76f51"></span>effect only</span>
+</div>
+<div id="main">
+  <div id="cy"></div>
+  <div id="panel"><h3>Click a node or an edge</h3><div class="meta">The evidence appears here, with links to the papers.</div></div>
+</div>
+<div id="hover"></div>
+
+<script>__CYTOSCAPE__</script>
+<script>__LAYOUT__</script>
+<script>
+cytoscape.use(cytoscapeFcose);
+
+const DATA = __DATA__;
+const HOVER_SENTENCES = 3;     // the hover card of an edge shows this many sentences
+const HOVER_MEMBERS = 8;       // the hover card of a node shows this many member spans
+const PANEL_MEMBERS = 50;      // the panel of a node shows this many member spans
+const TITLE_CHARS = 60;        // the hover card cuts a paper title to this length
+const LABEL_CHARS = 40;        // the map cuts a node label to this length; the hover card shows it all
+const ROLE_COLOUR = { "cause only": "#2a9d8f", "cause and effect": "#457b9d", "effect only": "#e76f51" };
+const EDGE_COLOUR = "#8d99ae";
+const MINORITY_COLOUR = "#c9ced6";
+const CONTESTED_COLOURS = ["#d62828", "#7b2cbf"];    // the two arrows of a contested pair
+
+// 1. Text from the PDFs goes into the page as text, never as HTML.
+function esc(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// The label on the map: the part before " | " (label_groups(by="both") adds keywords there), cut short.
+function shortLabel(label) {
+  const first = String(label).split(" | ")[0];
+  return first.length <= LABEL_CHARS ? first : first.slice(0, LABEL_CHARS).trim() + "…";
+}
+
+function edgeColour(e) {
+  if (e.direction === "minority") return MINORITY_COLOUR;
+  if (e.direction !== "contested") return EDGE_COLOUR;
+  return e.source < e.target ? CONTESTED_COLOURS[0] : CONTESTED_COLOURS[1];
+}
+
+// 2. The elements: every node and every edge, also the edges that causal_map() hid.
+const labels = {};
+const elements = [];
+for (const n of DATA.nodes) {
+  labels[n.node_id] = n.label;
+  elements.push({ group: "nodes", data: { ...n, id: n.node_id, short: shortLabel(n.label), colour: "#999999", size: 16 } });
+}
+for (const e of DATA.edges) {
+  elements.push({ group: "edges", data: { ...e, id: e.edge_id, colour: edgeColour(e), width: 1 + 1.5 * e.n_papers } });
+}
+
+const cy = cytoscape({
+  container: document.getElementById("cy"),
+  elements: elements,
+  style: [
+    { selector: "node", style: { "label": "data(short)", "background-color": "data(colour)", "width": "data(size)",
+      "height": "data(size)", "font-size": 13, "text-valign": "top", "text-margin-y": -4, "color": "#1d2433",
+      "text-outline-color": "#fff", "text-outline-width": 2 } },
+    { selector: "edge", style: { "width": "data(width)", "line-color": "data(colour)", "target-arrow-color": "data(colour)",
+      "target-arrow-shape": "triangle", "curve-style": "bezier", "arrow-scale": 1.1 } },
+    { selector: "edge[direction = 'minority']", style: { "line-style": "dashed" } },
+    { selector: "edge[?self_loop]", style: { "control-point-step-size": 70, "loop-direction": "-45deg", "loop-sweep": "-70deg" } },
+    { selector: ".faded", style: { "opacity": 0.12 } },
+    { selector: ".hidden", style: { "display": "none" } },
+    { selector: ".export-hidden", style: { "display": "none" } },
+    { selector: "node.found", style: { "border-width": 4, "border-color": "#f4a261" } },
+  ],
+  layout: { name: "preset" },
+});
+
+// 3. The source of a sentence: the DOI, else the paper title, else the file name.
+function paperOf(docId) {
+  return DATA.papers[docId] || { doi: "", title: "", file: docId };
+}
+function shortTitle(title) {
+  return title.length <= TITLE_CHARS ? title : title.slice(0, TITLE_CHARS).trim() + "…";
+}
+function sourceShort(ev) {
+  const p = paperOf(ev.doc_id);
+  if (p.doi) return esc(`doi:${p.doi}, p. ${ev.page}`);
+  if (p.title) return esc(`${shortTitle(p.title)}, p. ${ev.page}`);
+  return esc(`${p.file}, p. ${ev.page}`);
+}
+function sourceLong(ev) {
+  const p = paperOf(ev.doc_id);
+  if (p.doi) return `<a href="https://doi.org/${esc(p.doi)}" target="_blank">doi:${esc(p.doi)}</a>, p. ${ev.page}`;
+  if (p.title) return `${esc(p.title)}, p. ${ev.page} <i>(no DOI)</i>`;
+  return `${esc(p.file)}, p. ${ev.page} <i>(no DOI)</i>`;
+}
+function evidenceOf(d) {
+  return d.rel_ids.map(id => DATA.relations[id]);
+}
+
+function edgeHeader(d) {
+  return `<b>${esc(labels[d.source])} → ${esc(labels[d.target])}</b><br>` +
+         `${d.n_papers} papers · ${d.n_relations} relations · ${d.direction}${d.self_loop ? " · self-loop" : ""}`;
+}
+function nodeHeader(d) {
+  return `<b>${esc(d.label)}</b><br>${d.shownRole || "not shown"} · as cause ${d.shownCause} · as effect ${d.shownEffect}`;
+}
+
+// 4. The hover card: short. The first sentences and members only.
+const hover = document.getElementById("hover");
+function showHover(evt, html) {
+  hover.innerHTML = html;
+  hover.style.display = "block";
+  hover.style.left = Math.min(evt.originalEvent.clientX + 14, window.innerWidth - 430) + "px";
+  hover.style.top = (evt.originalEvent.clientY + 14) + "px";
+}
+cy.on("mouseover", "edge", evt => {
+  const d = evt.target.data();
+  let html = edgeHeader(d) + "<br><br>";
+  for (const ev of evidenceOf(d).slice(0, HOVER_SENTENCES)) {
+    html += `“${esc(ev.sentence)}”<div class="src">${sourceShort(ev)}</div>`;
+  }
+  const extra = d.rel_ids.length - HOVER_SENTENCES;
+  if (extra > 0) html += `<i>+ ${extra} more: click the edge</i>`;
+  showHover(evt, html);
+});
+cy.on("mouseover", "node", evt => {
+  const d = evt.target.data();
+  let members = d.members.slice(0, HOVER_MEMBERS).map(esc).join(", ");
+  if (d.members.length > HOVER_MEMBERS) members += ` … and ${d.members.length - HOVER_MEMBERS} more`;
+  showHover(evt, nodeHeader(d) + `<br><br>${d.members.length} members: ${members}`);
+});
+cy.on("mouseout", "node, edge", () => { hover.style.display = "none"; });
+
+// 5. The click panel: all the evidence, with links. A click on a node also lights up its neighbours.
+const panel = document.getElementById("panel");
+let selected = null;
+cy.on("tap", "edge", evt => {
+  const d = evt.target.data();
+  let html = `<h3>${esc(labels[d.source])} → ${esc(labels[d.target])}</h3><div class="meta">` +
+             `${d.n_papers} papers · ${d.n_relations} relations · ${d.direction}</div>`;
+  for (const ev of evidenceOf(d)) {
+    html += `<div class="ev">“${esc(ev.sentence)}”<div class="src">${sourceLong(ev)} · ${esc(ev.rel_id)}</div></div>`;
+  }
+  panel.innerHTML = html;
+});
+cy.on("tap", "node", evt => {
+  const node = evt.target;
+  const d = node.data();
+  selected = node;
+  cy.elements().addClass("faded");
+  node.closedNeighborhood().removeClass("faded");
+  let html = `<h3>${esc(d.label)}</h3><div class="meta">${d.shownRole || "not shown"} · ${d.members.length} members</div><b>Members</b><ul>`;
+  for (const m of d.members.slice(0, PANEL_MEMBERS)) html += `<li>${esc(m)}</li>`;
+  if (d.members.length > PANEL_MEMBERS) html += `<li>… and ${d.members.length - PANEL_MEMBERS} more</li>`;
+  html += "</ul><b>Edges</b><ul>";
+  node.connectedEdges().filter(e => !e.hasClass("hidden")).forEach(e => {
+    const ed = e.data();
+    html += `<li>${esc(labels[ed.source])} → ${esc(labels[ed.target])} (${ed.n_papers} papers)</li>`;
+  });
+  panel.innerHTML = html + "</ul>";
+});
+cy.on("tap", evt => {
+  if (evt.target !== cy) return;
+  cy.elements().removeClass("faded");
+  selected = null;
+});
+
+// 6. The filters. A node without a shown edge is hidden. The roles follow the shown edges.
+const minPapers = document.getElementById("minpapers");
+const minRelations = document.getElementById("minrelations");
+let maxPapers = 1;
+let maxRelations = 1;
+for (const e of DATA.edges) {
+  maxPapers = Math.max(maxPapers, e.n_papers);
+  maxRelations = Math.max(maxRelations, e.n_relations);
+}
+minPapers.max = maxPapers;
+minRelations.max = maxRelations;
+minPapers.value = Math.min(DATA.settings.min_papers, maxPapers);
+minRelations.value = Math.min(DATA.settings.min_relations, maxRelations);
+
+function setRoles() {
+  cy.nodes().forEach(n => {
+    let asCause = 0;
+    let asEffect = 0;
+    n.connectedEdges().filter(e => !e.hasClass("hidden")).forEach(e => {
+      if (e.data("source") === n.id()) asCause += e.data("n_relations");
+      if (e.data("target") === n.id()) asEffect += e.data("n_relations");
+    });
+    let role = "";
+    if (asCause + asEffect === 0) {
+      role = "";
+    } else if (asEffect === 0) {
+      role = "cause only";
+    } else if (asCause === 0) {
+      role = "effect only";
+    } else {
+      role = "cause and effect";
+    }
+    n.data({ shownCause: asCause, shownEffect: asEffect, shownRole: role,
+             colour: ROLE_COLOUR[role] || "#999999", size: 16 + 8 * Math.sqrt(asCause + asEffect) });
+  });
+}
+
+function applyFilters() {
+  const papers = Number(minPapers.value);
+  const relations = Number(minRelations.value);
+  const loops = document.getElementById("loops").checked;
+  document.getElementById("minpapersval").textContent = papers;
+  document.getElementById("minrelationsval").textContent = relations;
+  cy.edges().forEach(e => {
+    const d = e.data();
+    const hide = d.n_papers < papers || d.n_relations < relations || (!loops && d.self_loop);
+    e.toggleClass("hidden", hide);
+  });
+  cy.nodes().forEach(n => {
+    n.toggleClass("hidden", n.connectedEdges().filter(e => !e.hasClass("hidden")).length === 0);
+  });
+  setRoles();
+  const shownEdges = cy.edges().filter(e => !e.hasClass("hidden")).length;
+  const shownNodes = cy.nodes().filter(n => !n.hasClass("hidden")).length;
+  document.getElementById("count").textContent =
+    `${shownNodes} of ${cy.nodes().length} nodes, ${shownEdges} of ${cy.edges().length} edges shown`;
+}
+minPapers.addEventListener("input", applyFilters);
+minRelations.addEventListener("input", applyFilters);
+document.getElementById("loops").addEventListener("change", applyFilters);
+
+// 7. The layout, of the shown elements only. The map fits its box again when the window changes size.
+//    fcose counts the labels as part of the nodes and removes the overlaps. Test on the sample files
+//    (55 nodes): 0 overlapping pairs in 3 runs; the built-in "cose" layout gave 52 to 65.
+const LAYOUT = { name: "fcose", animate: false, randomize: true, quality: "proof", nodeDimensionsIncludeLabels: true,
+                 nodeRepulsion: 8000, idealEdgeLength: 90, nodeSeparation: 60, packComponents: true, gravity: 0.25 };
+function shownElements() {
+  return cy.elements().filter(x => !x.hasClass("hidden"));
+}
+function arrange() {
+  const shown = shownElements();
+  shown.layout(LAYOUT).run();
+  cy.fit(shown, 30);
+}
+document.getElementById("arrange").addEventListener("click", arrange);
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { cy.resize(); cy.fit(shownElements(), 30); }, 150);
+});
+
+// 8. Search: a label or a member span.
+document.getElementById("search").addEventListener("input", evt => {
+  const text = evt.target.value.trim().toLowerCase();
+  cy.nodes().removeClass("found");
+  if (!text) return;
+  const found = cy.nodes().filter(n => !n.hasClass("hidden") && (n.data("label").toLowerCase().includes(text) ||
+                                       n.data("members").some(m => m.toLowerCase().includes(text))));
+  found.addClass("found");
+  if (found.length) cy.animate({ fit: { eles: found.closedNeighborhood(), padding: 60 } }, { duration: 300 });
+});
+
+// 9. Save the picture. PNG and JPG are pixels: the scale sets the resolution.
+//    SVG is a vector drawing: it stays sharp at any size. This page writes the SVG itself.
+function pictureElements(scope) {
+  const shown = shownElements();
+  if (scope === "selection") return selected.closedNeighborhood().filter(x => !x.hasClass("hidden"));
+  return shown;
+}
+
+function svgBox(scope, eles) {
+  if (scope === "view") {
+    const v = cy.extent();
+    return { x: v.x1, y: v.y1, w: v.w, h: v.h };
+  }
+  const b = eles.boundingBox({ includeLabels: true });
+  return { x: b.x1 - 10, y: b.y1 - 10, w: b.w + 20, h: b.h + 20 };
+}
+
+function svgEdge(e) {
+  const d = e.data();
+  const s = e.sourceEndpoint();
+  const t = e.targetEndpoint();
+  const points = e.controlPoints() || [];
+  let path = `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
+  let last = s;
+  if (points.length === 1) {
+    path = `M ${s.x} ${s.y} Q ${points[0].x} ${points[0].y} ${t.x} ${t.y}`;
+    last = points[0];
+  } else if (points.length >= 2) {
+    path = `M ${s.x} ${s.y} C ${points[0].x} ${points[0].y} ${points[1].x} ${points[1].y} ${t.x} ${t.y}`;
+    last = points[1];
+  }
+  const dash = d.direction === "minority" ? ' stroke-dasharray="6 4"' : "";
+  // The arrow head: a triangle at the target end, along the last part of the line.
+  const angle = Math.atan2(t.y - last.y, t.x - last.x);
+  const size = 6 + 1.5 * d.width;
+  const left = { x: t.x - size * Math.cos(angle - 0.4), y: t.y - size * Math.sin(angle - 0.4) };
+  const right = { x: t.x - size * Math.cos(angle + 0.4), y: t.y - size * Math.sin(angle + 0.4) };
+  return `<path d="${path}" fill="none" stroke="${d.colour}" stroke-width="${d.width}"${dash}/>` +
+         `<polygon points="${t.x},${t.y} ${left.x},${left.y} ${right.x},${right.y}" fill="${d.colour}"/>`;
+}
+
+function svgNode(n) {
+  const d = n.data();
+  const p = n.position();
+  const r = d.size / 2;
+  return `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${d.colour}"/>` +
+         `<text x="${p.x}" y="${p.y - r - 5}" font-size="13" text-anchor="middle" fill="#1d2433" ` +
+         `stroke="#ffffff" stroke-width="3" paint-order="stroke" font-family="Helvetica, Arial, sans-serif">${esc(d.short)}</text>`;
+}
+
+function svgPicture(scope, scale) {
+  const eles = pictureElements(scope);
+  const box = svgBox(scope, eles);
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${box.w * scale}" height="${box.h * scale}" ` +
+                 `viewBox="${box.x} ${box.y} ${box.w} ${box.h}">`,
+                 `<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" fill="#ffffff"/>`];
+  eles.edges().forEach(e => parts.push(svgEdge(e)));
+  eles.nodes().forEach(n => parts.push(svgNode(n)));
+  parts.push("</svg>");
+  return new Blob([parts.join("\n")], { type: "image/svg+xml" });
+}
+
+function makePicture(format, scale, scope) {
+  if (format === "svg") return svgPicture(scope, scale);
+  const faded = cy.elements(".faded");
+  faded.removeClass("faded");                       // the picture shows full colours
+  if (scope === "selection") cy.elements().not(pictureElements(scope)).addClass("export-hidden");
+  const options = { full: scope !== "view", scale: scale, bg: "#ffffff", output: "blob" };
+  const blob = format === "jpg" ? cy.jpg({ ...options, quality: 0.95 }) : cy.png(options);
+  cy.elements().removeClass("export-hidden");
+  faded.addClass("faded");
+  return blob;
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+document.getElementById("save").addEventListener("click", () => {
+  const format = document.getElementById("format").value;
+  const scale = Number(document.getElementById("scale").value);
+  const scope = document.getElementById("scope").value;
+  if (scope === "selection" && selected === null) {
+    alert("Click a node first. The selection is that node and its neighbours.");
+    return;
+  }
+  download(makePicture(format, scale, scope), `causal_map_${scope}.${format}`);
+});
+
+// 10. Start: apply the filters of causal_map(), then lay out what is shown.
+applyFilters();
+arrange();
+</script>
+</body>
+</html>

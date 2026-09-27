@@ -152,3 +152,22 @@ def test_sidebar_text_gets_the_front_matter_flag(tmp_path):
     data = harvest(fake_pdf)
     flags = [s["flag"] for s in data["sentences"]]
     assert flags == ["front_matter", ""]
+
+
+def test_licence_text_is_dropped_and_research_text_is_kept():
+    from theoryminer.harvest import drop_junk_sentences
+    licence = ["Open Access This article is licensed under a Creative Commons Attribution 4.0 International License.",
+               "To view a copy of this licence, visit http://creativecommons.org/licenses/by/4.0/.",
+               "Copyright: © 2024 Gordesli et al. This is an open access article.",
+               "Springer Nature remains neutral with regard to jurisdictional claims in published maps."]
+    research = ["Permission to conduct the study was obtained from the school authorities.",
+                "Open access funding provided by University of Agder.",
+                "Job insecurity increases stress among employees."]
+    rows = []
+    for text in licence + research:
+        rows.append({"text": text, "kept": True, "drop_reason": "", "flag": ""})
+    drop_junk_sentences(rows)
+    for row in rows[:len(licence)]:
+        assert row["drop_reason"] == "licence_text", row["text"]
+    for row in rows[len(licence):]:
+        assert row["kept"], row["text"]

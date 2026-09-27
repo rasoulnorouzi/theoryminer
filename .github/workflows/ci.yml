@@ -78,11 +78,14 @@ jobs:
       - name: Check that PyPI can show the package description
         run: python -m twine check --strict dist/*
 
-      - name: Check that the wheel holds the ELSST file and its licence
+      - name: Check that the wheel holds the ELSST file, its licence and the map page
         run: |
           python -m zipfile -l dist/*.whl > wheel_files.txt
           grep "theoryminer/data/ELSST_R5.rdf.gz" wheel_files.txt
           grep "theoryminer/data/ELSST_LICENSE.md" wheel_files.txt
+          grep "theoryminer/data/causal_map.html" wheel_files.txt
+          grep "theoryminer/data/cytoscape.min.js" wheel_files.txt
+          grep "theoryminer/data/cytoscape-fcose.js" wheel_files.txt
 
       # A user installs the wheel, not this folder. So install the built wheel in a new
       # environment and use it from another folder, where the repository cannot help.
@@ -101,6 +104,11 @@ jobs:
           pdf = '${{ github.workspace }}/sample_files/barrech_2018_job_insecurity_health.pdf'
           assert len(harvest(pdf, cache=False)['sentences']) > 100
           assert extract_dois(pdf, cache=False)[0]['doi'] == '10.1186/s12889-018-5621-4'
+          from theoryminer import causal_map, draw_map
+          relations = [{'rel_id': 'r1', 'doc_id': 'p1', 'page': 1, 'cause': 'a', 'effect': 'b', 'sentence': 'a causes b.'}]
+          names = {0: {'central': 'a', 'members': ['a'], 'name': 'a'}, 1: {'central': 'b', 'members': ['b'], 'name': 'b'}}
+          draw_map(causal_map(relations, names), save='map.html')
+          assert 'cytoscape' in open('map.html').read()
           print('the installed wheel works')
           "
 

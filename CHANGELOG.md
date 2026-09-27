@@ -3,6 +3,38 @@
 Each release of `theoryminer` has one section. The newest release is first.
 The version numbers follow semantic versioning: before 1.0.0, a minor release (0.x.0) can change the API.
 
+## 0.2.0
+
+### Added
+
+- The causal map. `causal_map()` turns the relations and the names of their groups into nodes and edges.
+  An edge has two weights, papers and relations, and keeps its `rel_id`s. Self-loops and two-way pairs
+  get flags. The filters `min_papers` (default 1) and `min_relations` (default 2) move the weak edges to
+  `hidden`, with a reason; nothing is deleted.
+- `draw_map()` shows the map as an interactive page: in a notebook cell, or as `causal_map.html` from a
+  script. The page works offline. It has hover cards, a panel with every sentence and the DOI or title of
+  its paper, search, filters, and a picture export as PNG, JPG or SVG.
+- `save_map()` writes `nodes.csv`, `edges.csv`, `hidden.csv` and `map.graphml`.
+- `extract_dois()` has a new column, `title`: the largest font on page 1, else the PDF metadata.
+- `causenet(avoid_ambiguous=True)` skips a relation whose cause or effect only points to another
+  sentence ("this", "it", "such things"). The summary prints the count and examples.
+- `pairwise_grouping(linkage=...)`: `"average"`, `"complete"` or `"single"`.
+- `standardize_constructs()` and `standardize_groups()` have a `threshold`. It is off by default.
+- `harvest()` drops the licence and copyright text of a journal, with the reason `licence_text`.
+
+### Changed
+
+These defaults change the results of a run that uses them. Give the old value to get the old results.
+
+- `causenet()`: `decision="span_only"` (was `"cls+span"`) and `avoid_ambiguous=True` (new).
+- `pairwise_grouping()`: `linkage="average"` (the old method is `linkage="single"`). Single linkage chains:
+  on the sample papers its largest group held 153 spans; average linkage gives 27.
+- `networkx` is a declared dependency (`save_map()` writes GraphML with it). PyTorch installed it already.
+
+### Data in the package
+
+- `causal_map.html` (the page template), Cytoscape.js 3.30.2 and the fcose layout (all MIT).
+
 ## 0.1.1
 
 ### Changed

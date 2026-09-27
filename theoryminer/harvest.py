@@ -80,6 +80,22 @@ RE_FRONT_MATTER = re.compile(
     r"|\b[\w.+-]+@[\w-]+\.[\w.]+",
     re.I)
 
+# The licence and copyright text of a journal: legal text, not research text.
+# Matches:  "Open Access This article is licensed under a Creative Commons Attribution 4.0 ..."
+#           "To view a copy of this licence, visit http://creativecommons.org/licenses/by/4.0/."
+#           "Copyright: © 2024 Gordesli et al. This is an open access article distributed ..."
+#           "Springer Nature remains neutral with regard to jurisdictional claims in published maps ..."
+# No match: "Permission to conduct the study was obtained from the school authorities."
+#           "Open access funding provided by University of Agder."
+RE_LICENCE = re.compile(
+    r"creative\s*commons"
+    r"|to view a copy of this licen[cs]e"
+    r"|\bcopyright\s*:?\s*(?:©|\(c\))"
+    r"|distributed under the terms of the"
+    r"|published with open access at"
+    r"|neutral with regard to jurisdictional claims",
+    re.I)
+
 # Abbreviations for the sentence splitter, so "e.g." does not end a sentence.
 ABBREV = """e.g i.e cf al vs viz etc resp approx fig figs tab eq ch chap sec no vol
 pp p ed eds trans repr rev suppl dr prof mr mrs ms st jr sr univ dept inc ltd
@@ -350,6 +366,15 @@ def strip_stats(rows):
 def drop_junk_sentences(rows):
     """Drop structural junk sentences. Flag the ambiguous ones and keep them.
 
+    The drop reasons are:
+        licence_text         the licence or copyright text of the journal (RE_LICENCE)
+        caption_or_keywords  a figure or table caption, or a keyword line
+        index_entry          a line of a book index
+        spaced_letters       letters with spaces between them ("R E S E A R C H")
+        no_lowercase         no lowercase letter
+        low_alpha            too few letters
+        digit_heavy          too many digits
+
     The flags are:
         front_matter  the sentence holds journal sidebar text (RE_FRONT_MATTER),
                       for example an editor name. The sentence may still hold real text.
@@ -362,7 +387,10 @@ def drop_junk_sentences(rows):
             continue
         text = r["text"]
         words = text.split()
-        if RE_LABEL.match(text):
+        if RE_LICENCE.search(text):
+            r["kept"] = False
+            r["drop_reason"] = "licence_text"
+        elif RE_LABEL.match(text):
             r["kept"] = False
             r["drop_reason"] = "caption_or_keywords"
         elif RE_SEEALSO.match(text) or len(RE_PAGERANGE.findall(text)) >= 3:

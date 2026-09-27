@@ -104,3 +104,33 @@ def test_folder_without_pdf_raises(tmp_path):
     (tmp_path / "notes.txt").write_text("text")
     with pytest.raises(ValueError, match="no PDF file"):
         extract_dois(str(tmp_path))
+
+
+# The first words of each title, as sample_files/SOURCES.md gives them (from the publisher pages).
+TITLE_KEY = {
+    "alrabai_2021_autonomy_supportive_teaching.pdf": "The Influence of Autonomy-Supportive Teaching on EFL Students",
+    "barrech_2018_job_insecurity_health.pdf": "The impact of job insecurity on long-term self-rated health",
+    "friesinger_2025_discrimination_health.pdf": "Associations between perceived discrimination and health",
+    "gordesli_2024_social_media_mental_health.pdf": "Moderating effect of cultural differences on the association",
+    "pelikan_2021_needs_intrinsic_motivation.pdf": "Distance learning in higher education during COVID-19",
+    "schutz_2025_loneliness_social_support.pdf": "Lonely children and adolescents are less healthy",
+    "stephany_2017_income_inequality_trust.pdf": "Who are Your Joneses? Socio-Specific Income Inequality and Trust",
+}
+
+
+def test_every_sample_paper_gets_its_title():
+    for row in extract_dois(SAMPLE_DIR):
+        if row["status"] == "found":
+            assert row["title"].startswith(TITLE_KEY[row["file"]]), row["file"]
+
+
+def test_a_page_cache_without_its_pdf_gives_no_title(tmp_path):
+    path = fake_pdf(tmp_path, "paper.pdf", {"1": "doi: 10.1186/s12889-018-5621-4\n"})
+    assert extract_dois(path)[0]["title"] == ""
+
+
+def test_the_csv_has_a_title_column(tmp_path):
+    extract_dois(os.path.join(SAMPLE_DIR, "stephany_2017_income_inequality_trust.pdf"), save=str(tmp_path))
+    with open(tmp_path / "dois.csv", encoding="utf-8") as fh:
+        row = next(csv.DictReader(fh))
+    assert row["title"] == "Who are Your Joneses? Socio-Specific Income Inequality and Trust"

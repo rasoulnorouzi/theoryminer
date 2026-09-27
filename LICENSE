@@ -26,3 +26,9 @@ Third-party data in this repository keeps its own licence:
   See theoryminer/data/ELSST_LICENSE.md.
 - sample_files/*.pdf: open-access papers, CC BY 4.0.
   See sample_files/SOURCES.md.
+- theoryminer/data/cytoscape.min.js: Cytoscape.js 3.30.2, MIT licence,
+  Copyright (c) 2016-2024, The Cytoscape Consortium. The licence text is at the
+  top of the file. draw_map() copies this file into each page that it makes.
+- theoryminer/data/layout-base.js, cose-base.js, cytoscape-fcose.js: the fcose layout
+  (layout-base 2.0.1, cose-base 2.2.0, cytoscape-fcose 2.2.0), MIT licence,
+  Copyright (c) 2018 - present, iVis@Bilkent. The licence text is at the top of each file.

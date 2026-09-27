@@ -18,3 +18,4 @@ from .causenet import causenet
 from .dois import extract_dois
 from .harmonizer import (standardize_constructs, standardize_groups, pairwise_grouping,
                          clusterer, label_groups)
+from .causal_map import causal_map, draw_map, save_map

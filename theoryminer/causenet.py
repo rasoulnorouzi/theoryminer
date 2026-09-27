@@ -15,7 +15,7 @@ long on a CPU, so do not throw the result away.
 
 import time
 
-from .harmonizer.spans import tidy_span
+from .harmonizer.spans import is_vague_span, tidy_span
 
 # The permitted values of the device setting.
 # "auto" tries an NVIDIA GPU ("cuda"), then an Apple GPU ("mps"), then the CPU.
@@ -126,8 +126,44 @@ def _predict_batch(texts, mode, threshold, decision):
     return _run_model(texts, mode, threshold, decision)
 
 
-def causenet(sentences, threshold=0.8, mode="neural", decision="cls+span",
-             batch_size=64, device="auto"):
+def _is_ambiguous(cause, effect):
+    """Return True when the cause or the effect only points to another sentence ("this", "it", "such things").
+
+    Example:
+        >>> _is_ambiguous("this", "stress"), _is_ambiguous("job insecurity", "stress")
+        (True, False)
+    """
+    return is_vague_span(cause) or is_vague_span(effect)
+
+
+def _sentence_relations(row, pred, avoid_ambiguous, counts):
+    """Turn the prediction for one causal sentence into relation dicts. Update the counts in place.
+
+    The model decodes a span from token ids, and the tokenizer breaks the text:
+    "society ' s", "[CLS] ...", "##egrative". tidy_span() repairs that. It removes
+    no word, so the span stays a substring of its sentence. A skipped relation keeps
+    its number k, so the rel_ids do not change when avoid_ambiguous changes.
+    """
+    relations = []
+    sentence = row["clean"].lower()          # the model returns lowercase spans
+    for k, rel in enumerate(pred["relations"]):
+        cause = tidy_span(rel["cause"])
+        effect = tidy_span(rel["effect"])
+        if cause != rel["cause"] or effect != rel["effect"]:
+            counts["tidied"] += 1
+        if avoid_ambiguous and _is_ambiguous(cause, effect):
+            counts["ambiguous"].append(f"{cause} -> {effect}")
+            continue
+        if cause.lower() in sentence and effect.lower() in sentence:
+            counts["verbatim"] += 1
+        relations.append({"rel_id": f"{row['sent_id']}r{k:02d}", "sent_id": row["sent_id"],
+                          "doc_id": row["doc_id"], "page": row.get("page", 0),
+                          "cause": cause, "effect": effect, "sentence": row["clean"]})
+    return relations
+
+
+def causenet(sentences, threshold=0.8, mode="neural", decision="span_only",
+             batch_size=64, device="auto", avoid_ambiguous=True):
     """Find cause-effect pairs in the sentences.
 
     Args:
@@ -136,13 +172,19 @@ def causenet(sentences, threshold=0.8, mode="neural", decision="cls+span",
         threshold: Confidence needed to accept a relation (rel_threshold).
         mode: How the model links cause and effect: "neural", "auto",
             or "heuristic".
-        decision: What makes a sentence causal: "cls+span", "cls_only",
-            or "span_only".
+        decision: What makes a sentence causal: "span_only" (the default since
+            0.2.0: a cause span and an effect span are enough), "cls+span"
+            (also the sentence classifier must say causal; the default before
+            0.2.0), or "cls_only".
         batch_size: Sentences per model call. On a GPU a larger value is
             usually faster. Lower it after a CUDA "out of memory" error.
         device: Where the model runs: "auto" (an NVIDIA GPU, else an Apple GPU,
             else the CPU), "cpu", "cuda" or "mps". If the model fails on an
             Apple GPU, it moves to the CPU and the run goes on.
+        avoid_ambiguous: True (the default) skips a relation whose cause or effect
+            only points to another sentence: "this", "it", "such things" (the rule
+            is harmonizer.spans.is_vague_span). The summary prints the count and
+            examples. False keeps every relation.
 
     Returns:
         A list of dicts, one per relation, with the keys:
@@ -171,37 +213,21 @@ def causenet(sentences, threshold=0.8, mode="neural", decision="cls+span",
     print()
 
     # Turn the predictions into flat relation rows with full provenance.
-    # The model decodes a span from token ids, and the tokenizer breaks the
-    # text: "society ' s", "[CLS] ...", "##egrative". tidy_span() repairs
-    # that. It removes no word, so the span stays a substring of its sentence.
     relations = []
     n_causal = 0
-    n_tidied = 0
-    n_verbatim = 0
+    counts = {"tidied": 0, "verbatim": 0, "ambiguous": []}
     for r, p in zip(rows, preds):
         if not p["causal"]:
             continue
         n_causal = n_causal + 1
-        for k, rel in enumerate(p["relations"]):
-            cause = tidy_span(rel["cause"])
-            effect = tidy_span(rel["effect"])
-            if cause != rel["cause"] or effect != rel["effect"]:
-                n_tidied = n_tidied + 1
-            sentence = r["clean"].lower()          # the model returns lowercase spans
-            if cause.lower() in sentence and effect.lower() in sentence:
-                n_verbatim = n_verbatim + 1
-            relations.append({
-                "rel_id": f"{r['sent_id']}r{k:02d}",
-                "sent_id": r["sent_id"],
-                "doc_id": r["doc_id"],
-                "page": r.get("page", 0),
-                "cause": cause,
-                "effect": effect,
-                "sentence": r["clean"],
-            })
+        relations.extend(_sentence_relations(r, p, avoid_ambiguous, counts))
 
     print(f"causenet: {n_causal:,} causal sentences of {len(rows):,} | {len(relations):,} relations")
     if relations:
-        print(f"  spans repaired after decoding: {n_tidied:,} | "
-              f"both spans found verbatim in their sentence: {n_verbatim / len(relations):.0%}")
+        print(f"  spans repaired after decoding: {counts['tidied']:,} | "
+              f"both spans found verbatim in their sentence: {counts['verbatim'] / len(relations):.0%}")
+    if counts["ambiguous"]:
+        examples = "; ".join(counts["ambiguous"][:3])
+        print(f"  skipped (avoid_ambiguous=True): {len(counts['ambiguous']):,} relations with a pointer span, "
+              f"for example: {examples}")
     return relations

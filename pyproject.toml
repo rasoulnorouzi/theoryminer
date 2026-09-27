@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "theoryminer"
-version = "0.1.1"
+version = "0.2.0"
 description = "Assemble theories from text: extract cause-effect claims and harmonise their constructs."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -36,6 +36,7 @@ dependencies = [
     "transformers",
     "sentence-transformers",
     "umap-learn",                 # clusterer(..., umap={...}); installed by default since 0.1.1
+    "networkx",                   # save_map() writes the GraphML file; torch installs it too
 ]
 
 [project.optional-dependencies]

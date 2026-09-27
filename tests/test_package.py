@@ -5,7 +5,8 @@ import re
 import theoryminer
 
 PUBLIC_NAMES = ["harvest", "extract_dois", "causenet", "standardize_constructs", "standardize_groups",
-                "pairwise_grouping", "clusterer", "label_groups", "DEFAULT_STEPS", "STEPS"]
+                "pairwise_grouping", "clusterer", "label_groups", "causal_map", "draw_map", "save_map",
+                "DEFAULT_STEPS", "STEPS"]
 
 
 def test_every_public_name_imports():

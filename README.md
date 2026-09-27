@@ -6,7 +6,8 @@
 
 Assemble theories from text. `theoryminer` reads a PDF, finds the sentences that make causal
 claims, extracts each cause → effect pair, and brings the many ways authors name the same
-construct together, with a thesaurus (ELSST) or without one.
+construct together, with a thesaurus (ELSST) or without one. Then it draws a causal map: an
+interactive page where every arrow leads back to the sentences that claim it.
 
 ```
 PDF ──harvest()──► sentences ──causenet()──► relations (cause span → effect span)
@@ -20,10 +21,12 @@ span → top-k thesaurus concepts     spans → groups of similar spans
                                   ▼                               ▼
                         standardize_groups()               label_groups()
                         group → thesaurus concept          group → label from its own words
+                                  └───────────────┬───────────────┘
+                                                  ▼
+                        causal_map() ──► draw_map() (interactive page), save_map() (tables, GraphML)
 ```
 
-Status: extraction and harmonisation are written. The graph stage (`theorize()`) and the
-evaluation are planned.
+Status: extraction, harmonisation and the causal map are written. The evaluation is planned.
 
 ## Install
 
@@ -74,7 +77,8 @@ function downloads the sentence-transformer (`all-mpnet-base-v2` by default).
 ## Quick start
 
 ```python
-from theoryminer import harvest, extract_dois, causenet, clusterer, label_groups, standardize_constructs
+from theoryminer import (harvest, extract_dois, causenet, clusterer, label_groups, standardize_constructs,
+                         causal_map, draw_map, save_map)
 
 data = harvest("raw_data/my_book.pdf", pages="12-540")   # clean sentences + a drop log
 data = harvest("sample_files")                          # or every PDF in a folder
@@ -84,10 +88,27 @@ relations = causenet(data["sentences"])                 # one dict per cause →
 groups = clusterer(relations)                           # group similar spans (HDBSCAN)
 names = label_groups(groups)                            # name each group from its own words
 matches = standardize_constructs(relations)             # or map each span to ELSST concepts
+
+cmap = causal_map(relations, names)                     # nodes, edges, and the hidden edges
+draw_map(cmap, papers=dois)                             # the interactive page (in a notebook, or causal_map.html)
+save_map(cmap, "outputs/my_map")                        # nodes.csv, edges.csv, hidden.csv, map.graphml
 ```
 
 `harvest()` takes one PDF or a folder of PDFs. In a folder, a file that is not a PDF, or a PDF
 that cannot be read, does not stop the run. The drop log gets one row for it, with the reason.
+
+## The causal map
+
+A node is a construct: a group of spans, or a thesaurus concept. An arrow goes from a cause to an
+effect. Its width shows the number of papers that make the claim. On the page you can:
+
+- hover over a node or an arrow, and click an arrow to read all its sentences, with the DOI of each
+  paper (else its title, else its file name);
+- search, drag, zoom, and change the filters (`min papers`, `min relations`, self-loops);
+- save a picture as PNG, JPG or SVG: the whole map, the current view, or one node with its neighbours.
+
+The page is one HTML file that works offline. Nothing is deleted: a two-way claim keeps both arrows,
+and an edge that a filter hides stays in the data with its reason.
 
 ## Sample papers
 
@@ -109,13 +130,11 @@ vectors again in the next session.
 
 ## Documentation
 
-| file | what it is |
-|---|---|
 All learning material is in `tutorials/`:
 
 | file | what it is |
 |---|---|
-| `tutorials/TUTORIAL.ipynb` | every function and every setting, with real output, and a full run on the sample papers |
+| `tutorials/TUTORIAL.ipynb` | every function and every setting, with real output, and a full run on the sample papers, up to the causal map |
 | `tutorials/PACKAGE_LINE_BY_LINE.ipynb` | each function taken apart line by line and checked against the real one |
 | `tutorials/STRATEGIES.md` | the six ways to turn a thesaurus concept into text, and the test behind the defaults |
 
@@ -149,7 +168,10 @@ Publishing, so no token is stored in the repository.
 
 The code has the MIT licence. See `LICENSE`.
 
-Two kinds of data in this repository keep their own licence:
+These files in this repository keep their own licence:
 
 - `theoryminer/data/ELSST_R5.rdf.gz`: ELSST, © CESSDA, CC BY-SA 4.0. See `theoryminer/data/ELSST_LICENSE.md`.
 - `sample_files/*.pdf`: open-access papers, CC BY 4.0. See `sample_files/SOURCES.md`.
+- `theoryminer/data/cytoscape.min.js` (Cytoscape.js) and the fcose layout files (`layout-base.js`,
+  `cose-base.js`, `cytoscape-fcose.js`): MIT. Each page that `draw_map()` makes holds a copy, with the
+  licence text.

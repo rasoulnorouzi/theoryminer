@@ -10,9 +10,22 @@ collect_spans() accepts what the user has at hand: the relations from
 causenet(), or a plain list of strings. It keeps the original span string
 as the key of every result, so a span can always be traced back to its
 relation.
+
+is_vague_span() finds a span that only points to text in another sentence:
+"this", "it", "such things". causenet(avoid_ambiguous=True) skips a relation
+with such a span.
 """
 
 import re
+
+# A span that starts with one of these words, and is short, only points to text in another sentence.
+VAGUE_STARTS = set("this that these those it its they them their he she we you such which what "
+                   "both either neither former latter".split())
+MAX_VAGUE_WORDS = 3   # a longer span ("these three social support measures") carries its own meaning
+
+# The article at the start of a span, for the vague test: "the latter" -> "latter".
+# No match: "theory of mind" (the pattern needs a space after the word)
+RE_ARTICLE = re.compile(r"^(?:the|a|an)\s+", re.I)
 
 _SPECIAL = re.compile(r"\[(CLS|SEP|PAD|UNK|MASK)\]")
 _EDGE_LEFT = " \t\"'“”‘’`,.;:!?)]}"
@@ -62,3 +75,21 @@ def collect_spans(items):
             if t and t not in seen:
                 seen.append(t)
     return seen
+
+
+def is_vague_span(span):
+    """Return True when the span only points to text in another sentence.
+
+    The rule: after an article ("the", "a", "an"), the span starts with a pointer
+    word (VAGUE_STARTS) and has at most MAX_VAGUE_WORDS words.
+
+    Example:
+        >>> is_vague_span("this"), is_vague_span("such things"), is_vague_span("the latter")
+        (True, True, True)
+        >>> is_vague_span("these three social support measures"), is_vague_span("social support")
+        (False, False)
+    """
+    words = RE_ARTICLE.sub("", span.strip()).lower().split()
+    if not words or len(words) > MAX_VAGUE_WORDS:
+        return False
+    return words[0] in VAGUE_STARTS
