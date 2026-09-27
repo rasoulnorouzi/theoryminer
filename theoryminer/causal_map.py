@@ -14,8 +14,10 @@ The chain: relations -> groups -> names -> map.
 A node is a construct: a group from label_groups(), or a thesaurus concept from
 standardize_groups() or standardize_constructs(). An edge goes from the node of
 the cause to the node of the effect. The direction comes from the relations.
-An edge has two weights: the number of papers and the number of relations.
-Every edge keeps its rel_ids, so each edge leads back to its sentences.
+An edge has three counts: papers, sentences and relations. One sentence can give two
+relations on one edge: "social media -> body image" and "social media -> beauty standards",
+when both effects are in one group. So the filters and the node sizes count sentences, not
+relations. Every edge keeps its rel_ids, so each edge leads back to its sentences.
 
 Special edges get a flag. Nothing is deleted:
     self_loop   the cause and the effect are in the same node. It usually means that
@@ -45,10 +47,10 @@ LAYOUT_JS = [os.path.join(DATA_DIR, name) for name in ["layout-base.js", "cose-b
 DEFAULT_PAGE = "causal_map.html"   # the file that draw_map() writes outside a notebook, when save=None
 FRAME_HEIGHT = 720                 # the height of the map in a notebook cell, in pixels
 
-NODE_COLUMNS = ["node_id", "label", "role", "n_relations", "as_cause", "as_effect", "n_papers",
+NODE_COLUMNS = ["node_id", "label", "role", "n_sentences", "as_cause", "as_effect", "n_papers",
                 "shown", "n_members", "members"]
-EDGE_COLUMNS = ["edge_id", "source", "source_label", "target", "target_label", "n_papers", "n_relations",
-                "direction", "reciprocal", "self_loop", "drop_reason", "doc_ids", "rel_ids"]
+EDGE_COLUMNS = ["edge_id", "source", "source_label", "target", "target_label", "n_papers", "n_sentences",
+                "n_relations", "direction", "reciprocal", "self_loop", "drop_reason", "doc_ids", "rel_ids"]
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +89,7 @@ def _names_shape(names):
 def _new_node(node_id, label):
     """Return an empty node dict."""
     return {"node_id": node_id, "label": label, "members": [], "as_cause": 0, "as_effect": 0,
-            "n_relations": 0, "n_papers": 0, "role": "", "shown": False}
+            "n_sentences": 0, "n_papers": 0, "role": "", "shown": False}
 
 
 def _add_member(nodes, span_node, node_id, label, span):
@@ -143,6 +145,16 @@ def _concept_or_self(matches, own_id, own_label):
 # 2. The edges: one per (cause node, effect node).
 # ---------------------------------------------------------------------------
 
+def _has_empty_span(relation):
+    """Return True when the cause or the effect is empty. causenet() since 0.2.0 gives no such relation.
+
+    Example:
+        >>> _has_empty_span({"cause": "stress", "effect": " "})
+        True
+    """
+    return not relation["cause"].strip() or not relation["effect"].strip()
+
+
 def _node_of(span, span_node):
     """Return the node id of a span. The span is stripped, as the harmonizer strips it.
 
@@ -157,23 +169,35 @@ def _node_of(span, span_node):
 
 
 def _build_edges(relations, span_node):
-    """Merge the relations into edges. Return {(source, target): edge dict}, in first-seen order."""
+    """Merge the relations into edges. Return {(source, target): edge dict}, in first-seen order.
+
+    n_sentences counts the different sentences of an edge. Two relations of one sentence on one
+    edge count as one sentence. A relation with an empty span has no node: it is left out here, and
+    causal_map() prints how many.
+    """
     edges = collections.OrderedDict()
     for relation in relations:
+        if _has_empty_span(relation):
+            continue
         source = _node_of(relation["cause"], span_node)
         target = _node_of(relation["effect"], span_node)
         key = (source, target)
         if key not in edges:
             edges[key] = {"edge_id": f"e{len(edges) + 1:05d}", "source": source, "target": target,
-                          "n_papers": 0, "n_relations": 0, "rel_ids": [], "doc_ids": [],
+                          "n_papers": 0, "n_sentences": 0, "n_relations": 0, "rel_ids": [], "doc_ids": [],
+                          "sent_ids": [],
                           "direction": "one-way", "reciprocal": False, "self_loop": source == target,
                           "drop_reason": ""}
         edge = edges[key]
         edge["rel_ids"].append(relation["rel_id"])
         if relation["doc_id"] not in edge["doc_ids"]:
             edge["doc_ids"].append(relation["doc_id"])
+        sent_id = relation.get("sent_id", relation["rel_id"])
+        if sent_id not in edge["sent_ids"]:
+            edge["sent_ids"].append(sent_id)
     for edge in edges.values():
         edge["n_relations"] = len(edge["rel_ids"])
+        edge["n_sentences"] = len(edge.pop("sent_ids"))
         edge["n_papers"] = len(edge["doc_ids"])
     return edges
 
@@ -207,7 +231,7 @@ def _mark_pairs(edges, min_share):
         edge["direction"] = _pair_direction(edge["n_papers"], other["n_papers"], min_share)
 
 
-def _apply_filters(edges, min_papers, min_relations):
+def _apply_filters(edges, min_papers, min_sentences):
     """Split the edges into shown and hidden. A hidden edge gets its drop_reason. Return (shown, hidden)."""
     shown = []
     hidden = []
@@ -215,8 +239,8 @@ def _apply_filters(edges, min_papers, min_relations):
         if edge["n_papers"] < min_papers:
             edge["drop_reason"] = "below_min_papers"
             hidden.append(edge)
-        elif edge["n_relations"] < min_relations:
-            edge["drop_reason"] = "below_min_relations"
+        elif edge["n_sentences"] < min_sentences:
+            edge["drop_reason"] = "below_min_sentences"
             hidden.append(edge)
         else:
             shown.append(edge)
@@ -245,14 +269,14 @@ def _count_nodes(nodes, shown):
     """Count each node in the shown edges, and set its role and flags. Change the nodes in place."""
     papers = collections.defaultdict(set)
     for edge in shown:
-        nodes[edge["source"]]["as_cause"] += edge["n_relations"]
-        nodes[edge["target"]]["as_effect"] += edge["n_relations"]
+        nodes[edge["source"]]["as_cause"] += edge["n_sentences"]
+        nodes[edge["target"]]["as_effect"] += edge["n_sentences"]
         papers[edge["source"]].update(edge["doc_ids"])
         papers[edge["target"]].update(edge["doc_ids"])
     for node_id, node in nodes.items():
-        node["n_relations"] = node["as_cause"] + node["as_effect"]
+        node["n_sentences"] = node["as_cause"] + node["as_effect"]
         node["n_papers"] = len(papers[node_id])
-        node["shown"] = node["n_relations"] > 0
+        node["shown"] = node["n_sentences"] > 0
         if node["shown"]:
             node["role"] = _role(node["as_cause"], node["as_effect"])
 
@@ -261,20 +285,20 @@ def _count_nodes(nodes, shown):
 # 4. The public functions.
 # ---------------------------------------------------------------------------
 
-def _check_settings(min_papers, min_relations, min_share):
+def _check_settings(min_papers, min_sentences, min_share):
     """Raise a ValueError for a wrong filter setting."""
-    if min_papers < 1 or min_relations < 1:
-        raise ValueError(f"min_papers and min_relations must be 1 or more; "
-                         f"got min_papers={min_papers}, min_relations={min_relations}")
+    if min_papers < 1 or min_sentences < 1:
+        raise ValueError(f"min_papers and min_sentences must be 1 or more; "
+                         f"got min_papers={min_papers}, min_sentences={min_sentences}")
     if not 0.5 < min_share <= 1:
         raise ValueError(f"min_share must be above 0.5 and at most 1; got {min_share}")
 
 
-def causal_map(relations, names, min_papers=1, min_relations=2, min_share=MIN_SHARE):
+def causal_map(relations, names, min_papers=1, min_sentences=2, min_share=MIN_SHARE):
     """Build the causal map from the relations and the names of their groups.
 
     Each node is a construct. Each edge is "cause node -> effect node", with the number
-    of papers and relations that claim it. Self-loops and two-way pairs get flags. The
+    of papers, sentences and relations that claim it. Self-loops and two-way pairs get flags. The
     filters hide the weak edges. Nothing is deleted: a hidden edge is in "hidden" with
     its drop_reason. The function reads no file and loads no model.
 
@@ -284,8 +308,8 @@ def causal_map(relations, names, min_papers=1, min_relations=2, min_share=MIN_SH
             made from the same relations.
         min_papers: show an edge only when at least this many papers claim it. The default 1
             also works for one long book, where every edge has 1 paper.
-        min_relations: show an edge only when at least this many relations claim it. The
-            default 2 hides the claims that only one sentence makes. Use 1 to show every edge.
+        min_sentences: show an edge only when at least this many different sentences claim it.
+            The default 2 hides the claims that only one sentence makes. Use 1 to show every edge.
         min_share: a two-way pair gets one direction when one side has at least this share of
             the papers of the pair. Else both edges are "contested".
 
@@ -294,7 +318,7 @@ def causal_map(relations, names, min_papers=1, min_relations=2, min_share=MIN_SH
          "edges":     [edge dicts that are shown],
          "hidden":    [edge dicts that a filter hides, with drop_reason],
          "relations": {rel_id: relation dict},
-         "settings":  {"min_papers", "min_relations", "min_share"}}
+         "settings":  {"min_papers", "min_sentences", "min_share"}}
 
     Raises:
         ValueError: names has an unknown shape, a span of a relation is not in names,
@@ -302,8 +326,8 @@ def causal_map(relations, names, min_papers=1, min_relations=2, min_share=MIN_SH
 
     Example:
         >>> relations = [
-        ...     {"rel_id": "r1", "doc_id": "p1", "cause": "job insecurity", "effect": "stress"},
-        ...     {"rel_id": "r2", "doc_id": "p2", "cause": "fear of job loss", "effect": "anxiety"}]
+        ...     {"rel_id": "r1", "sent_id": "s1", "doc_id": "p1", "cause": "job insecurity", "effect": "stress"},
+        ...     {"rel_id": "r2", "sent_id": "s2", "doc_id": "p2", "cause": "fear of job loss", "effect": "anxiety"}]
         >>> names = {0: {"central": "job insecurity", "members": ["job insecurity", "fear of job loss"],
         ...              "name": "job insecurity"},
         ...          1: {"central": "stress", "members": ["stress", "anxiety"], "name": "stress"}}
@@ -313,7 +337,7 @@ def causal_map(relations, names, min_papers=1, min_relations=2, min_share=MIN_SH
         >>> edge["source"], edge["target"], edge["n_papers"], edge["rel_ids"]
         ('g:0', 'g:1', 2, ['r1', 'r2'])
     """
-    _check_settings(min_papers, min_relations, min_share)
+    _check_settings(min_papers, min_sentences, min_share)
     if not relations:
         raise ValueError("relations is empty; give the output of causenet()")
 
@@ -323,7 +347,7 @@ def causal_map(relations, names, min_papers=1, min_relations=2, min_share=MIN_SH
     # 2. The edges, the two-way pairs and the filters.
     edges = _build_edges(relations, span_node)
     _mark_pairs(edges, min_share)
-    shown, hidden = _apply_filters(edges, min_papers, min_relations)
+    shown, hidden = _apply_filters(edges, min_papers, min_sentences)
 
     # 3. The counts and roles of the nodes, from the shown edges.
     _count_nodes(nodes, shown)
@@ -332,7 +356,7 @@ def causal_map(relations, names, min_papers=1, min_relations=2, min_share=MIN_SH
     for relation in relations:
         relation_by_id[relation["rel_id"]] = relation
     cmap = {"nodes": nodes, "edges": shown, "hidden": hidden, "relations": relation_by_id,
-            "settings": {"min_papers": min_papers, "min_relations": min_relations, "min_share": min_share}}
+            "settings": {"min_papers": min_papers, "min_sentences": min_sentences, "min_share": min_share}}
     _print_summary(cmap, len(relations))
     return cmap
 
@@ -340,6 +364,7 @@ def causal_map(relations, names, min_papers=1, min_relations=2, min_share=MIN_SH
 def _print_summary(cmap, n_relations):
     """Print one short summary of a causal_map() run."""
     shown_nodes = [n for n in cmap["nodes"].values() if n["shown"]]
+    empty = sum(_has_empty_span(relation) for relation in cmap["relations"].values())
     all_edges = cmap["edges"] + cmap["hidden"]
     loops = [e for e in all_edges if e["self_loop"]]
     loop_relations = sum(e["n_relations"] for e in loops)
@@ -349,6 +374,8 @@ def _print_summary(cmap, n_relations):
           f"{len(cmap['hidden']):,} hidden | self-loops: {len(loops)} edges, {loop_relations} of "
           f"{n_relations} relations ({100 * loop_relations / n_relations:.1f}%) | "
           f"two-way pairs: {pairs} ({contested} contested)")
+    if empty:
+        print(f"  left out: {empty} relations with an empty span (an older causenet() result)")
 
 
 def _edge_row(edge, nodes):
@@ -446,8 +473,10 @@ def _page_data(cmap, papers):
     """Return the data of the page: every node and edge, the sentences, the paper sources, the settings."""
     relations = {}
     for rel_id, relation in cmap["relations"].items():
-        relations[rel_id] = {"rel_id": rel_id, "doc_id": relation["doc_id"],
-                             "page": relation.get("page", ""), "sentence": relation.get("sentence", "")}
+        relations[rel_id] = {"rel_id": rel_id, "sent_id": relation.get("sent_id", rel_id),
+                             "doc_id": relation["doc_id"], "page": relation.get("page", ""),
+                             "cause": relation["cause"], "effect": relation["effect"],
+                             "sentence": relation.get("sentence", "")}
     return {"nodes": list(cmap["nodes"].values()), "edges": cmap["edges"] + cmap["hidden"],
             "relations": relations, "papers": _paper_sources(papers), "settings": cmap["settings"]}
 

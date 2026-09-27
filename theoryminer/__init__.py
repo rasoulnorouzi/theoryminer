@@ -15,7 +15,8 @@ except PackageNotFoundError:        # the code runs from a folder, not installed
 
 from .harvest import DEFAULT_STEPS, STEPS, harvest
 from .causenet import causenet
-from .dois import extract_dois
+from .dois import extract_dois, extract_references
 from .harmonizer import (standardize_constructs, standardize_groups, pairwise_grouping,
                          clusterer, label_groups)
 from .causal_map import causal_map, draw_map, save_map
+from .download import download_papers

@@ -77,12 +77,14 @@ function downloads the sentence-transformer (`all-mpnet-base-v2` by default).
 ## Quick start
 
 ```python
-from theoryminer import (harvest, extract_dois, causenet, clusterer, label_groups, standardize_constructs,
-                         causal_map, draw_map, save_map)
+from theoryminer import (harvest, extract_dois, extract_references, download_papers, causenet, clusterer,
+                         label_groups, standardize_constructs, causal_map, draw_map, save_map)
 
 data = harvest("raw_data/my_book.pdf", pages="12-540")   # clean sentences + a drop log
 data = harvest("sample_files")                          # or every PDF in a folder
-dois = extract_dois("sample_files", save="outputs")     # the DOI of each paper -> outputs/dois.csv
+dois = extract_dois("sample_files", save="outputs")     # the DOI and title of each paper -> outputs/dois.csv
+refs = extract_references("sample_files", save="outputs")   # the DOIs that the papers cite -> outputs/references.csv
+report = download_papers(refs, "round_2", licences=["cc-by"])  # their open-access PDFs: the next snowball round
 relations = causenet(data["sentences"])                 # one dict per cause → effect pair
 
 groups = clusterer(relations)                           # group similar spans (HDBSCAN)
@@ -97,6 +99,14 @@ save_map(cmap, "outputs/my_map")                        # nodes.csv, edges.csv, 
 `harvest()` takes one PDF or a folder of PDFs. In a folder, a file that is not a PDF, or a PDF
 that cannot be read, does not stop the run. The drop log gets one row for it, with the reason.
 
+`extract_references()` finds the DOIs in the references of seed papers, for a snowball search. It
+repairs the DOIs that a PDF cuts at a line end. On the sample papers, 214 of its 215 DOIs exist at
+doi.org. `download_papers()` downloads their open-access PDFs. It checks the licence of each paper
+with OpenAlex first (free, no key), so `licences=["cc-by"]` downloads only CC BY papers. For more
+sources, install the extra: `pip install "theoryminer[download]"` (Python 3.11 or newer). It adds
+`tmsr-doi-downloader`, whose Unpaywall, CORE and Google Scholar sources take `email=`, `core_api_key=`
+and `serpapi_key=`. The tutorial, section 11, runs one snowball round.
+
 ## The causal map
 
 A node is a construct: a group of spans, or a thesaurus concept. An arrow goes from a cause to an
@@ -104,7 +114,10 @@ effect. Its width shows the number of papers that make the claim. On the page yo
 
 - hover over a node or an arrow, and click an arrow to read all its sentences, with the DOI of each
   paper (else its title, else its file name);
-- search, drag, zoom, and change the filters (`min papers`, `min relations`, self-loops);
+- search as a filter: "age" shows only the matching nodes and their neighbours (or 2 steps, or only
+  the matches), and hides the rest;
+- filter by paper, by role ("cause only", "cause and effect", "effect only"), by two-way pairs, and with
+  `min papers`, `min sentences` and the self-loop switch; drag, zoom, and Reset;
 - save a picture as PNG, JPG or SVG: the whole map, the current view, or one node with its neighbours.
 
 The page is one HTML file that works offline. Nothing is deleted: a two-way claim keeps both arrows,

@@ -4,8 +4,8 @@ import re
 
 import theoryminer
 
-PUBLIC_NAMES = ["harvest", "extract_dois", "causenet", "standardize_constructs", "standardize_groups",
-                "pairwise_grouping", "clusterer", "label_groups", "causal_map", "draw_map", "save_map",
+PUBLIC_NAMES = ["harvest", "extract_dois", "extract_references", "causenet", "standardize_constructs", "standardize_groups",
+                "pairwise_grouping", "clusterer", "label_groups", "causal_map", "draw_map", "save_map", "download_papers",
                 "DEFAULT_STEPS", "STEPS"]
 
 

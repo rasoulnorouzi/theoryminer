@@ -14,6 +14,7 @@
   #bar b { font-size: 15px; }
   #bar input[type=search] { padding: 3px 8px; border: 1px solid var(--rule); border-radius: 6px; width: 160px; }
   #bar select, #bar button { font: inherit; padding: 2px 6px; }
+  #paper { max-width: 260px; }
   .group { display: inline-flex; gap: 6px; align-items: center; }
   .export { border-left: 1px solid var(--rule); padding-left: 14px; }
   #count { color: var(--muted); }
@@ -38,10 +39,20 @@
 <body>
 <div id="bar">
   <b>__TITLE__</b>
-  <span class="group">Search <input type="search" id="search" placeholder="a construct"></span>
+  <span class="group">Search <input type="search" id="search" placeholder="a construct, e.g. age">
+    <select id="steps" title="what the search shows">
+      <option value="0">only the matches</option><option value="1" selected>+ neighbours</option><option value="2">+ 2 steps</option>
+    </select></span>
   <span class="group">min papers <input type="range" id="minpapers" min="1" value="1"> <span id="minpapersval">1</span></span>
-  <span class="group">min relations <input type="range" id="minrelations" min="1" value="1"> <span id="minrelationsval">1</span></span>
+  <span class="group">min sentences <input type="range" id="minsentences" min="1" value="1"> <span id="minsentencesval">1</span></span>
   <label class="group"><input type="checkbox" id="loops" checked> self-loops</label>
+  <span class="group">Paper <select id="paper"><option value="">all papers</option></select></span>
+  <span class="group">Roles
+    <label><input type="checkbox" id="role-cause" checked> cause only</label>
+    <label><input type="checkbox" id="role-both" checked> cause and effect</label>
+    <label><input type="checkbox" id="role-effect" checked> effect only</label></span>
+  <label class="group"><input type="checkbox" id="twoway"> two-way pairs only</label>
+  <button id="reset">Reset</button>
   <button id="arrange">Re-arrange</button>
   <span id="count"></span>
   <span class="group export">Save picture
@@ -63,7 +74,7 @@
 cytoscape.use(cytoscapeFcose);
 
 const DATA = __DATA__;
-const HOVER_SENTENCES = 3;     // the hover card of an edge shows this many sentences
+const HOVER_SENTENCES = 3;     // the hover card of an edge shows this many different sentences
 const HOVER_MEMBERS = 8;       // the hover card of a node shows this many member spans
 const PANEL_MEMBERS = 50;      // the panel of a node shows this many member spans
 const TITLE_CHARS = 60;        // the hover card cuts a paper title to this length
@@ -139,13 +150,25 @@ function sourceLong(ev) {
   if (p.title) return `${esc(p.title)}, p. ${ev.page} <i>(no DOI)</i>`;
   return `${esc(p.file)}, p. ${ev.page} <i>(no DOI)</i>`;
 }
+// The evidence of an edge, one entry per sentence. Two relations of one sentence on one edge
+// ("social media -> body image" and "social media -> beauty standards") show as one sentence.
 function evidenceOf(d) {
-  return d.rel_ids.map(id => DATA.relations[id]);
+  const bySentence = new Map();
+  for (const id of d.rel_ids) {
+    const r = DATA.relations[id];
+    if (!bySentence.has(r.sent_id)) bySentence.set(r.sent_id, { ...r, pairs: [] });
+    bySentence.get(r.sent_id).pairs.push(`${r.cause} → ${r.effect}`);
+  }
+  return [...bySentence.values()];
+}
+function pairsHtml(ev) {
+  if (ev.pairs.length < 2) return "";
+  return `<div class="src">${ev.pairs.length} relations: ${ev.pairs.map(esc).join("; ")}</div>`;
 }
 
 function edgeHeader(d) {
   return `<b>${esc(labels[d.source])} → ${esc(labels[d.target])}</b><br>` +
-         `${d.n_papers} papers · ${d.n_relations} relations · ${d.direction}${d.self_loop ? " · self-loop" : ""}`;
+         `${d.n_papers} papers · ${d.n_sentences} sentences · ${d.direction}${d.self_loop ? " · self-loop" : ""}`;
 }
 function nodeHeader(d) {
   return `<b>${esc(d.label)}</b><br>${d.shownRole || "not shown"} · as cause ${d.shownCause} · as effect ${d.shownEffect}`;
@@ -162,10 +185,11 @@ function showHover(evt, html) {
 cy.on("mouseover", "edge", evt => {
   const d = evt.target.data();
   let html = edgeHeader(d) + "<br><br>";
-  for (const ev of evidenceOf(d).slice(0, HOVER_SENTENCES)) {
+  const evidence = evidenceOf(d);
+  for (const ev of evidence.slice(0, HOVER_SENTENCES)) {
     html += `“${esc(ev.sentence)}”<div class="src">${sourceShort(ev)}</div>`;
   }
-  const extra = d.rel_ids.length - HOVER_SENTENCES;
+  const extra = evidence.length - HOVER_SENTENCES;
   if (extra > 0) html += `<i>+ ${extra} more: click the edge</i>`;
   showHover(evt, html);
 });
@@ -183,9 +207,9 @@ let selected = null;
 cy.on("tap", "edge", evt => {
   const d = evt.target.data();
   let html = `<h3>${esc(labels[d.source])} → ${esc(labels[d.target])}</h3><div class="meta">` +
-             `${d.n_papers} papers · ${d.n_relations} relations · ${d.direction}</div>`;
+             `${d.n_papers} papers · ${d.n_sentences} sentences · ${d.n_relations} relations · ${d.direction}</div>`;
   for (const ev of evidenceOf(d)) {
-    html += `<div class="ev">“${esc(ev.sentence)}”<div class="src">${sourceLong(ev)} · ${esc(ev.rel_id)}</div></div>`;
+    html += `<div class="ev">“${esc(ev.sentence)}”<div class="src">${sourceLong(ev)} · ${esc(ev.sent_id)}</div>${pairsHtml(ev)}</div>`;
   }
   panel.innerHTML = html;
 });
@@ -213,25 +237,25 @@ cy.on("tap", evt => {
 
 // 6. The filters. A node without a shown edge is hidden. The roles follow the shown edges.
 const minPapers = document.getElementById("minpapers");
-const minRelations = document.getElementById("minrelations");
+const minSentences = document.getElementById("minsentences");
 let maxPapers = 1;
-let maxRelations = 1;
+let maxSentences = 1;
 for (const e of DATA.edges) {
   maxPapers = Math.max(maxPapers, e.n_papers);
-  maxRelations = Math.max(maxRelations, e.n_relations);
+  maxSentences = Math.max(maxSentences, e.n_sentences);
 }
 minPapers.max = maxPapers;
-minRelations.max = maxRelations;
+minSentences.max = maxSentences;
 minPapers.value = Math.min(DATA.settings.min_papers, maxPapers);
-minRelations.value = Math.min(DATA.settings.min_relations, maxRelations);
+minSentences.value = Math.min(DATA.settings.min_sentences, maxSentences);
 
 function setRoles() {
   cy.nodes().forEach(n => {
     let asCause = 0;
     let asEffect = 0;
     n.connectedEdges().filter(e => !e.hasClass("hidden")).forEach(e => {
-      if (e.data("source") === n.id()) asCause += e.data("n_relations");
-      if (e.data("target") === n.id()) asEffect += e.data("n_relations");
+      if (e.data("source") === n.id()) asCause += e.data("n_sentences");
+      if (e.data("target") === n.id()) asEffect += e.data("n_sentences");
     });
     let role = "";
     if (asCause + asEffect === 0) {
@@ -248,29 +272,130 @@ function setRoles() {
   });
 }
 
-function applyFilters() {
-  const papers = Number(minPapers.value);
-  const relations = Number(minRelations.value);
-  const loops = document.getElementById("loops").checked;
-  document.getElementById("minpapersval").textContent = papers;
-  document.getElementById("minrelationsval").textContent = relations;
-  cy.edges().forEach(e => {
-    const d = e.data();
-    const hide = d.n_papers < papers || d.n_relations < relations || (!loops && d.self_loop);
-    e.toggleClass("hidden", hide);
-  });
-  cy.nodes().forEach(n => {
-    n.toggleClass("hidden", n.connectedEdges().filter(e => !e.hasClass("hidden")).length === 0);
-  });
+const searchBox = document.getElementById("search");
+const stepsBox = document.getElementById("steps");
+const paperBox = document.getElementById("paper");
+const twoWayBox = document.getElementById("twoway");
+const ROLE_BOXES = { "cause only": "role-cause", "cause and effect": "role-both", "effect only": "role-effect" };
+
+// The paper list: every paper that has an edge, named by its title, else its file name.
+function paperName(docId) {
+  const p = paperOf(docId);
+  return shortTitle(p.title || p.file || docId);
+}
+const docIds = new Set();
+for (const e of DATA.edges) e.doc_ids.forEach(id => docIds.add(id));
+[...docIds].sort((a, b) => paperName(a).localeCompare(paperName(b))).forEach(id => {
+  const option = document.createElement("option");
+  option.value = id;
+  option.textContent = paperName(id);
+  paperBox.appendChild(option);
+});
+
+function readSettings() {
+  return { papers: Number(minPapers.value), sentences: Number(minSentences.value),
+           loops: document.getElementById("loops").checked, paper: paperBox.value, twoWay: twoWayBox.checked };
+}
+
+function edgePasses(e, settings) {
+  const d = e.data();
+  if (d.n_papers < settings.papers || d.n_sentences < settings.sentences) return false;
+  if (!settings.loops && d.self_loop) return false;
+  if (settings.paper && !d.doc_ids.includes(settings.paper)) return false;
+  if (settings.twoWay && !d.reciprocal) return false;
+  return true;
+}
+
+// The search matches the start of a word in the label or in a member span:
+// "age" finds "age differences" and "adolescents' age", not "language" or "average".
+function searchPattern(text) {
+  const safe = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp("(^|[^a-z0-9])" + safe, "i");
+}
+function nodeMatches(n, pattern) {
+  return pattern.test(n.data("label")) || n.data("members").some(m => pattern.test(m));
+}
+
+// Return the nodes that the search keeps (the matches and their neighbours), or null without a search.
+let foundCount = 0;
+function searchNodes(edges) {
+  cy.nodes().removeClass("found");
+  const text = searchBox.value.trim();
+  if (!text) return null;
+  const pattern = searchPattern(text);
+  const found = cy.nodes().filter(n => nodeMatches(n, pattern));
+  found.addClass("found");
+  foundCount = found.length;
+  let keep = found;
+  for (let step = 0; step < Number(stepsBox.value); step++) {
+    keep = keep.union(keep.connectedEdges().intersection(edges).connectedNodes());
+  }
+  return keep;
+}
+
+// Show these edges and their nodes. Hide everything else. Then set the roles again.
+function showOnly(edges) {
+  cy.edges().forEach(e => e.toggleClass("hidden", !edges.has(e)));
+  cy.nodes().forEach(n => n.toggleClass("hidden", n.connectedEdges().intersection(edges).length === 0));
   setRoles();
+}
+
+function applyFilters() {
+  const settings = readSettings();
+  document.getElementById("minpapersval").textContent = settings.papers;
+  document.getElementById("minsentencesval").textContent = settings.sentences;
+
+  // 1. The edges that pass the sliders, the self-loop switch, the paper and the two-way switch.
+  let edges = cy.edges().filter(e => edgePasses(e, settings));
+
+  // 2. The search keeps its matches, their neighbours, and the edges between them.
+  const keep = searchNodes(edges);
+  if (keep !== null) edges = edges.filter(e => keep.has(e.source()) && keep.has(e.target()));
+  showOnly(edges);
+
+  // 3. The role switches hide the nodes of an unchecked role, with their edges.
+  const roles = Object.keys(ROLE_BOXES).filter(role => document.getElementById(ROLE_BOXES[role]).checked);
+  if (roles.length < 3) {
+    edges = edges.filter(e => roles.includes(e.source().data("shownRole")) && roles.includes(e.target().data("shownRole")));
+    showOnly(edges);
+  }
+
+  // 4. The counter, and a layout for the nodes that have no place yet.
   const shownEdges = cy.edges().filter(e => !e.hasClass("hidden")).length;
   const shownNodes = cy.nodes().filter(n => !n.hasClass("hidden")).length;
-  document.getElementById("count").textContent =
-    `${shownNodes} of ${cy.nodes().length} nodes, ${shownEdges} of ${cy.edges().length} edges shown`;
+  let text = `${shownNodes} of ${cy.nodes().length} nodes, ${shownEdges} of ${cy.edges().length} edges shown`;
+  if (keep !== null) text = `${foundCount} matches · ` + text;
+  document.getElementById("count").textContent = text;
+  arrangeIfNeeded();
+}
+
+// A filter that changes what is shown also moves the view to it.
+let fitTimer = null;
+function filterAndFit() {
+  applyFilters();
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => cy.animate({ fit: { eles: shownElements(), padding: 50 } }, { duration: 300 }), 400);
 }
 minPapers.addEventListener("input", applyFilters);
-minRelations.addEventListener("input", applyFilters);
+minSentences.addEventListener("input", applyFilters);
 document.getElementById("loops").addEventListener("change", applyFilters);
+searchBox.addEventListener("input", filterAndFit);
+for (const id of ["steps", "paper", "twoway", "role-cause", "role-both", "role-effect"]) {
+  document.getElementById(id).addEventListener("change", filterAndFit);
+}
+
+// Reset: the filters of causal_map(), no search, every paper and role.
+document.getElementById("reset").addEventListener("click", () => {
+  minPapers.value = Math.min(DATA.settings.min_papers, maxPapers);
+  minSentences.value = Math.min(DATA.settings.min_sentences, maxSentences);
+  searchBox.value = "";
+  stepsBox.value = "1";
+  paperBox.value = "";
+  twoWayBox.checked = false;
+  document.getElementById("loops").checked = true;
+  Object.values(ROLE_BOXES).forEach(id => { document.getElementById(id).checked = true; });
+  filterAndFit();
+});
 
 // 7. The layout, of the shown elements only. The map fits its box again when the window changes size.
 //    fcose counts the labels as part of the nodes and removes the overlaps. Test on the sample files
@@ -280,10 +405,23 @@ const LAYOUT = { name: "fcose", animate: false, randomize: true, quality: "proof
 function shownElements() {
   return cy.elements().filter(x => !x.hasClass("hidden"));
 }
+// A node gets a place only in a layout. A node that a filter shows later has none yet: it would sit
+// at the center, on top of the others. So the page remembers the placed nodes, and a filter that
+// shows a new node lays out the map again, a moment after the slider stops.
+const placed = new Set();
+let layoutTimer = null;
 function arrange() {
+  clearTimeout(layoutTimer);                   // a planned layout is not needed any more
   const shown = shownElements();
   shown.layout(LAYOUT).run();
+  shown.nodes().forEach(n => placed.add(n.id()));
   cy.fit(shown, 30);
+}
+function arrangeIfNeeded() {
+  const unplaced = cy.nodes().filter(n => !n.hasClass("hidden") && !placed.has(n.id()));
+  if (unplaced.length === 0) return;
+  clearTimeout(layoutTimer);
+  layoutTimer = setTimeout(arrange, 300);
 }
 document.getElementById("arrange").addEventListener("click", arrange);
 let resizeTimer = null;
@@ -292,16 +430,7 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(() => { cy.resize(); cy.fit(shownElements(), 30); }, 150);
 });
 
-// 8. Search: a label or a member span.
-document.getElementById("search").addEventListener("input", evt => {
-  const text = evt.target.value.trim().toLowerCase();
-  cy.nodes().removeClass("found");
-  if (!text) return;
-  const found = cy.nodes().filter(n => !n.hasClass("hidden") && (n.data("label").toLowerCase().includes(text) ||
-                                       n.data("members").some(m => m.toLowerCase().includes(text))));
-  found.addClass("found");
-  if (found.length) cy.animate({ fit: { eles: found.closedNeighborhood(), padding: 60 } }, { duration: 300 });
-});
+// 8. The search is one of the filters (section 6).
 
 // 9. Save the picture. PNG and JPG are pixels: the scale sets the resolution.
 //    SVG is a vector drawing: it stays sharp at any size. This page writes the SVG itself.

@@ -1,7 +1,7 @@
 """labels — give a group of spans a label, without a taxonomy.
 
     from theoryminer.harmonizer import label_groups
-    labelled = label_groups(clusters, by="both", top=3)
+    labelled = label_groups(clusters)                 # by="keywords", top=3: the default since 0.2.0
 
 Use this module when your field has no thesaurus, or when the thesaurus
 does not hold your constructs. The module loads no model and reads no
@@ -64,7 +64,7 @@ def _label(spans, central, keywords, by):
     return f"{central} | {words}"
 
 
-def label_groups(groups, by="both", top=3):
+def label_groups(groups, by="keywords", top=3):
     """Label each group of spans. No taxonomy. No model.
 
     Args:
@@ -72,7 +72,8 @@ def label_groups(groups, by="both", top=3):
             {span: {"group": int, "central": span}}.
         by: how the label is made.
             "medoid"   the central member, one span.
-            "keywords" the `top` keywords, joined by a space.
+            "keywords" the `top` keywords, joined by a space (the default since 0.2.0;
+                       "both" before).
             "both"     the medoid, a pipe, then the keywords.
         top: how many keywords to keep for each group.
 

@@ -40,3 +40,10 @@ def test_every_group_keeps_its_members():
 def test_unknown_rule_raises():
     with pytest.raises(ValueError, match="unknown by 'words'"):
         label_groups(GROUPS, by="words")
+
+
+def test_the_default_label_is_the_keywords():
+    # Changed in 0.2.0: the default was "both" (the medoid, a pipe, then the keywords).
+    keywords = label_groups(GROUPS, by="keywords")
+    assert label_groups(GROUPS)[0]["name"] == keywords[0]["name"]
+    assert " | " not in label_groups(GROUPS)[0]["name"]

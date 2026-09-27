@@ -101,3 +101,14 @@ def test_the_pointer_rule():
         assert is_vague_span(span), span
     for span in ["job insecurity", "these three social support measures", "theory of mind"]:
         assert not is_vague_span(span), span
+
+
+def test_a_relation_with_an_empty_span_is_skipped_and_counted():
+    from theoryminer.causenet import _sentence_relations
+    row = {"sent_id": "s1", "doc_id": "paper", "page": 1, "clean": "Stress harms health."}
+    pred = {"causal": True, "relations": [{"cause": "[CLS]", "effect": "health"},
+                                          {"cause": "stress", "effect": "health"}]}
+    counts = {"tidied": 0, "verbatim": 0, "empty": 0, "ambiguous": []}
+    kept = _sentence_relations(row, pred, True, counts)
+    assert [r["rel_id"] for r in kept] == ["s1r01"]
+    assert counts["empty"] == 1

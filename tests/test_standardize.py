@@ -40,3 +40,9 @@ def test_summary_counts_the_items_without_a_concept():
 def test_threshold_is_off_by_default():
     for function in [standardize_constructs, standardize_groups]:
         assert inspect.signature(function).parameters["threshold"].default is None
+
+
+def test_all_concepts_are_the_default():
+    # Changed in 0.2.0: leaves_only was True.
+    for function in [standardize_constructs, standardize_groups]:
+        assert inspect.signature(function).parameters["leaves_only"].default is False

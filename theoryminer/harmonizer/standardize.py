@@ -79,7 +79,7 @@ def _score_summary(best, n_items, threshold):
 
 
 def standardize_constructs(items, taxonomy="elsst", strategy="enriched", top=5,
-                           embeddings="allmpnet", leaves_only=True, cache=True, threshold=None):
+                           embeddings="allmpnet", leaves_only=False, cache=True, threshold=None):
     """Map each span to its closest taxonomy concepts.
 
     Args:
@@ -89,7 +89,9 @@ def standardize_constructs(items, taxonomy="elsst", strategy="enriched", top=5,
             leaf | path | anchor | context | bracket | enriched.
         top: how many concepts to return per span.
         embeddings: model shorthand ("allmpnet", "bge_base", "minilm") or a HF id.
-        leaves_only: match against leaf concepts only, or against all concepts.
+        leaves_only: False (the default since 0.2.0) matches against all concepts, broad ones
+            too ("TRUST", "MOTIVATION"). True matches against the leaf concepts only (the
+            most specific ones), as before 0.2.0.
         cache: keep the taxonomy embeddings on disk.
         threshold: None keeps every match. A cosine (for example 0.5) leaves out the
             concepts that score lower. A span with no concept left gets an empty list.
@@ -115,7 +117,7 @@ def standardize_constructs(items, taxonomy="elsst", strategy="enriched", top=5,
 
 
 def standardize_groups(groups, name_by="mean_sim", taxonomy="elsst", strategy="enriched",
-                       top=5, embeddings="allmpnet", leaves_only=True, cache=True, threshold=None):
+                       top=5, embeddings="allmpnet", leaves_only=False, cache=True, threshold=None):
     """Give each group of spans its closest taxonomy concepts.
 
     Args:

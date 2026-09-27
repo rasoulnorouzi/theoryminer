@@ -42,6 +42,7 @@ dependencies = [
 [project.optional-dependencies]
 umap = ["umap-learn"]               # kept so that old commands like pip install "theoryminer[umap]" still work
 notebooks = ["pandas", "ipykernel"]
+download = ["tmsr-doi-downloader; python_version >= '3.11'"]   # download_papers(): more sources (Python 3.11+)
 dev = ["pytest"]
 
 [project.urls]

@@ -12,8 +12,8 @@ import pytest
 from theoryminer import causal_map, draw_map, save_map
 
 
-def relation(rel_id, doc_id, cause, effect, sentence="A sentence."):
-    return {"rel_id": rel_id, "sent_id": rel_id, "doc_id": doc_id, "page": 1,
+def relation(rel_id, doc_id, cause, effect, sentence="A sentence.", sent_id=None):
+    return {"rel_id": rel_id, "sent_id": sent_id or rel_id, "doc_id": doc_id, "page": 1,
             "cause": cause, "effect": effect, "sentence": sentence}
 
 
@@ -59,33 +59,33 @@ def node_called(cmap, label):
 # --- the edges --------------------------------------------------------------
 
 def test_papers_and_relations_are_counted_separately():
-    edge = edge_between(causal_map(RELATIONS, NAMES, min_relations=1), "job insecurity", "stress")
+    edge = edge_between(causal_map(RELATIONS, NAMES, min_sentences=1), "job insecurity", "stress")
     assert edge["n_relations"] == 4
     assert edge["n_papers"] == 3                       # p1 counts once
     assert edge["rel_ids"] == ["r1", "r2", "r3", "r9"]
 
 
 def test_a_pair_with_3_papers_against_1_has_one_direction():
-    cmap = causal_map(RELATIONS, NAMES, min_relations=1)
+    cmap = causal_map(RELATIONS, NAMES, min_sentences=1)
     assert edge_between(cmap, "job insecurity", "stress")["direction"] == "dominant"
     assert edge_between(cmap, "stress", "job insecurity")["direction"] == "minority"
     assert edge_between(cmap, "stress", "job insecurity")["reciprocal"]
 
 
 def test_a_pair_with_1_paper_against_1_is_contested():
-    cmap = causal_map(RELATIONS, NAMES, min_relations=1)
+    cmap = causal_map(RELATIONS, NAMES, min_sentences=1)
     assert edge_between(cmap, "loneliness", "health")["direction"] == "contested"
     assert edge_between(cmap, "health", "loneliness")["direction"] == "contested"
 
 
 def test_a_lower_min_share_decides_the_pair():
     # With min_share 0.51, a 3-to-1 pair stays decided; 1 to 1 stays contested.
-    cmap = causal_map(RELATIONS, NAMES, min_relations=1, min_share=0.51)
+    cmap = causal_map(RELATIONS, NAMES, min_sentences=1, min_share=0.51)
     assert edge_between(cmap, "loneliness", "health")["direction"] == "contested"
 
 
 def test_a_self_loop_is_flagged_and_kept():
-    edge = edge_between(causal_map(RELATIONS, NAMES, min_relations=1), "stress", "stress")
+    edge = edge_between(causal_map(RELATIONS, NAMES, min_sentences=1), "stress", "stress")
     assert edge["self_loop"]
     assert not edge["reciprocal"]
     assert edge["drop_reason"] == ""
@@ -94,28 +94,42 @@ def test_a_self_loop_is_flagged_and_kept():
 # --- the filters -------------------------------------------------------------
 
 def test_min_papers_hides_edges_with_their_reason():
-    cmap = causal_map(RELATIONS, NAMES, min_papers=2, min_relations=1)
+    cmap = causal_map(RELATIONS, NAMES, min_papers=2, min_sentences=1)
     assert len(cmap["edges"]) == 1
     assert len(cmap["edges"]) + len(cmap["hidden"]) == 6       # nothing is deleted
     for edge in cmap["hidden"]:
         assert edge["drop_reason"] == "below_min_papers"
 
 
-def test_min_relations_hides_edges_with_their_reason():
-    cmap = causal_map(RELATIONS, NAMES, min_relations=2)
-    assert [edge["n_relations"] for edge in cmap["edges"]] == [4]
-    assert cmap["hidden"][0]["drop_reason"] == "below_min_relations"
+def test_min_sentences_hides_edges_with_their_reason():
+    cmap = causal_map(RELATIONS, NAMES, min_sentences=2)
+    assert [edge["n_sentences"] for edge in cmap["edges"]] == [4]
+    assert cmap["hidden"][0]["drop_reason"] == "below_min_sentences"
+
+
+def test_two_relations_of_one_sentence_on_one_edge_count_as_one_sentence():
+    # "social media -> body image" and "social media -> beauty standards", both effects in one group.
+    relations = [relation("s1r00", "p1", "social media", "body image", sent_id="s1"),
+                 relation("s1r01", "p1", "social media", "beauty standards", sent_id="s1")]
+    names = {0: {"central": "social media", "members": ["social media"], "name": "social media"},
+             1: {"central": "body image", "members": ["body image", "beauty standards"], "name": "body image"}}
+    cmap = causal_map(relations, names)
+    edge = cmap["hidden"][0]
+    assert edge["n_relations"] == 2
+    assert edge["n_sentences"] == 1
+    assert edge["drop_reason"] == "below_min_sentences"      # one sentence is not enough for the default
+    assert cmap["nodes"]["g:0"]["as_cause"] == 0            # the node counts shown sentences only
 
 
 def test_roles_and_counts_follow_the_shown_edges():
-    cmap = causal_map(RELATIONS, NAMES, min_papers=2, min_relations=1)
+    cmap = causal_map(RELATIONS, NAMES, min_papers=2, min_sentences=1)
     assert node_called(cmap, "job insecurity")["role"] == "cause only"
     assert node_called(cmap, "stress")["role"] == "effect only"
     assert not node_called(cmap, "health")["shown"]
 
 
 def test_a_node_with_edges_in_and_out_is_cause_and_effect():
-    health = node_called(causal_map(RELATIONS, NAMES, min_relations=1), "health")
+    health = node_called(causal_map(RELATIONS, NAMES, min_sentences=1), "health")
     assert health["as_cause"] == 1
     assert health["as_effect"] == 2
     assert health["role"] == "cause and effect"
@@ -134,7 +148,7 @@ def test_names_from_standardize_constructs_merge_spans_with_one_concept():
              "fear of job loss": [match("c1", "JOB INSECURITY")],
              "stress": [match("c2", "STRESS")],
              "odd span": []}                                   # no concept above the threshold
-    cmap = causal_map(relations, names, min_relations=1)
+    cmap = causal_map(relations, names, min_sentences=1)
     assert node_called(cmap, "JOB INSECURITY")["members"] == ["job insecurity", "fear of job loss"]
     assert node_called(cmap, "odd span")["node_id"] == "s:odd span"
 
@@ -144,7 +158,7 @@ def test_names_from_standardize_groups_use_the_concept_or_the_central_span():
     names = {0: {"central": "job insecurity", "size": 1, "members": ["job insecurity"],
                  "matches": [match("c1", "JOB INSECURITY")]},
              1: {"central": "stress", "size": 1, "members": ["stress"], "matches": []}}
-    cmap = causal_map(relations, names, min_relations=1)
+    cmap = causal_map(relations, names, min_sentences=1)
     edge = cmap["edges"][0]
     assert cmap["nodes"][edge["source"]]["label"] == "JOB INSECURITY"
     assert cmap["nodes"][edge["target"]]["label"] == "stress"
@@ -171,7 +185,7 @@ def test_wrong_settings_raise():
 # --- save_map() and draw_map() --------------------------------------------------
 
 def test_save_map_writes_the_tables_and_the_graph(tmp_path):
-    cmap = causal_map(RELATIONS, NAMES, min_papers=2, min_relations=1)
+    cmap = causal_map(RELATIONS, NAMES, min_papers=2, min_sentences=1)
     save_map(cmap, str(tmp_path / "map"))
     with open(tmp_path / "map" / "hidden.csv", encoding="utf-8") as fh:
         hidden = list(csv.DictReader(fh))
@@ -185,7 +199,7 @@ def test_draw_map_in_a_script_writes_one_offline_page(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     relations = RELATIONS + [relation("r10", "p6", "stress", "health", "Stress </script> harms health.")]
     papers = [{"doc_id": "p1", "file": "p1.pdf", "doi": "10.1000/xyz", "title": "A title"}]
-    draw_map(causal_map(relations, NAMES, min_relations=1), papers=papers)
+    draw_map(causal_map(relations, NAMES, min_sentences=1), papers=papers)
     page = (tmp_path / "causal_map.html").read_text(encoding="utf-8")
     assert "cytoscape" in page
     assert "10.1000/xyz" in page
@@ -195,13 +209,13 @@ def test_draw_map_in_a_script_writes_one_offline_page(tmp_path, monkeypatch):
 
 
 def test_draw_map_with_save_writes_that_file(tmp_path):
-    draw_map(causal_map(RELATIONS, NAMES, min_relations=1), save=str(tmp_path / "out" / "map.html"))
+    draw_map(causal_map(RELATIONS, NAMES, min_sentences=1), save=str(tmp_path / "out" / "map.html"))
     assert (tmp_path / "out" / "map.html").is_file()
 
 
 def test_each_placeholder_is_filled_once(tmp_path):
     # A placeholder name in a comment of the template would copy the whole library or the data twice.
-    draw_map(causal_map(RELATIONS, NAMES, min_relations=1), save=str(tmp_path / "map.html"))
+    draw_map(causal_map(RELATIONS, NAMES, min_sentences=1), save=str(tmp_path / "map.html"))
     page = (tmp_path / "map.html").read_text(encoding="utf-8")
     assert page.count("The Cytoscape Consortium") == 1
     assert page.count("iVis-at-Bilkent") == 1
@@ -210,6 +224,13 @@ def test_each_placeholder_is_filled_once(tmp_path):
 
 def test_the_default_hides_edges_with_one_relation():
     cmap = causal_map(RELATIONS, NAMES)
-    assert cmap["settings"] == {"min_papers": 1, "min_relations": 2, "min_share": 0.67}
+    assert cmap["settings"] == {"min_papers": 1, "min_sentences": 2, "min_share": 0.67}
     assert [edge["n_relations"] for edge in cmap["edges"]] == [4]
     assert len(cmap["hidden"]) == 5
+
+
+def test_a_relation_with_an_empty_span_is_left_out():
+    # An older causenet() could return an empty span; the harmonizer skips it, so it has no node.
+    relations = RELATIONS + [relation("r20", "p9", "stress", "  ")]
+    cmap = causal_map(relations, NAMES, min_sentences=1)
+    assert all("r20" not in edge["rel_ids"] for edge in cmap["edges"] + cmap["hidden"])

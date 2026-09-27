@@ -141,8 +141,9 @@ def _sentence_relations(row, pred, avoid_ambiguous, counts):
 
     The model decodes a span from token ids, and the tokenizer breaks the text:
     "society ' s", "[CLS] ...", "##egrative". tidy_span() repairs that. It removes
-    no word, so the span stays a substring of its sentence. A skipped relation keeps
-    its number k, so the rel_ids do not change when avoid_ambiguous changes.
+    no word, so the span stays a substring of its sentence. A span that is empty after
+    the repair (the model decoded only special tokens) is decoding debris: the relation is
+    skipped and counted. A skipped relation keeps its number k, so the rel_ids do not change.
     """
     relations = []
     sentence = row["clean"].lower()          # the model returns lowercase spans
@@ -151,6 +152,9 @@ def _sentence_relations(row, pred, avoid_ambiguous, counts):
         effect = tidy_span(rel["effect"])
         if cause != rel["cause"] or effect != rel["effect"]:
             counts["tidied"] += 1
+        if not cause.strip() or not effect.strip():
+            counts["empty"] += 1
+            continue
         if avoid_ambiguous and _is_ambiguous(cause, effect):
             counts["ambiguous"].append(f"{cause} -> {effect}")
             continue
@@ -215,7 +219,7 @@ def causenet(sentences, threshold=0.8, mode="neural", decision="span_only",
     # Turn the predictions into flat relation rows with full provenance.
     relations = []
     n_causal = 0
-    counts = {"tidied": 0, "verbatim": 0, "ambiguous": []}
+    counts = {"tidied": 0, "verbatim": 0, "empty": 0, "ambiguous": []}
     for r, p in zip(rows, preds):
         if not p["causal"]:
             continue
@@ -226,6 +230,8 @@ def causenet(sentences, threshold=0.8, mode="neural", decision="span_only",
     if relations:
         print(f"  spans repaired after decoding: {counts['tidied']:,} | "
               f"both spans found verbatim in their sentence: {counts['verbatim'] / len(relations):.0%}")
+    if counts["empty"]:
+        print(f"  skipped: {counts['empty']:,} relations with an empty span after decoding")
     if counts["ambiguous"]:
         examples = "; ".join(counts["ambiguous"][:3])
         print(f"  skipped (avoid_ambiguous=True): {len(counts['ambiguous']):,} relations with a pointer span, "

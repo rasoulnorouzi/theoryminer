@@ -8,19 +8,34 @@ The version numbers follow semantic versioning: before 1.0.0, a minor release (0
 ### Added
 
 - The causal map. `causal_map()` turns the relations and the names of their groups into nodes and edges.
-  An edge has two weights, papers and relations, and keeps its `rel_id`s. Self-loops and two-way pairs
-  get flags. The filters `min_papers` (default 1) and `min_relations` (default 2) move the weak edges to
-  `hidden`, with a reason; nothing is deleted.
+  An edge counts papers, sentences and relations, and keeps its `rel_id`s. Two relations of one sentence
+  on one edge count as one sentence. Self-loops and two-way pairs get flags. The filters `min_papers`
+  (default 1) and `min_sentences` (default 2) move the weak edges to `hidden`, with a reason; nothing is
+  deleted.
 - `draw_map()` shows the map as an interactive page: in a notebook cell, or as `causal_map.html` from a
   script. The page works offline. It has hover cards, a panel with every sentence and the DOI or title of
-  its paper, search, filters, and a picture export as PNG, JPG or SVG.
+  its paper, a search that filters the map (the matches and their neighbours), filters by paper, role,
+  two-way pairs, papers and sentences, and a picture export as PNG, JPG or SVG.
 - `save_map()` writes `nodes.csv`, `edges.csv`, `hidden.csv` and `map.graphml`.
+- `extract_references()` finds the DOIs in the references of seed papers, one row per DOI, with the number
+  of seeds that cite it. It repairs a DOI that the PDF cuts at a line end, and it leaves out the seed's own
+  DOI and its figure and table DOIs. It can save a CSV file with a `doi` column. On the sample papers,
+  214 of its 215 DOIs exist at doi.org.
+- `download_papers()` downloads the open-access PDFs of a list of DOIs. It asks OpenAlex for the licence
+  first, so `licences=["cc-by"]` downloads only CC BY papers. Then it tries the OpenAlex links and, when it
+  is installed, `tmsr-doi-downloader` (`pip install "theoryminer[download]"`, Python 3.11 or newer).
+  One status row per DOI; a failed DOI does not stop the run; a second run skips the files it has.
 - `extract_dois()` has a new column, `title`: the largest font on page 1, else the PDF metadata.
 - `causenet(avoid_ambiguous=True)` skips a relation whose cause or effect only points to another
   sentence ("this", "it", "such things"). The summary prints the count and examples.
 - `pairwise_grouping(linkage=...)`: `"average"`, `"complete"` or `"single"`.
 - `standardize_constructs()` and `standardize_groups()` have a `threshold`. It is off by default.
 - `harvest()` drops the licence and copyright text of a journal, with the reason `licence_text`.
+
+### Fixed
+
+- `causenet()` no longer returns a relation with an empty cause or effect (the model decoded only special
+  tokens). The summary counts them. Before, `causal_map()` stopped on such a relation.
 
 ### Changed
 
@@ -29,6 +44,9 @@ These defaults change the results of a run that uses them. Give the old value to
 - `causenet()`: `decision="span_only"` (was `"cls+span"`) and `avoid_ambiguous=True` (new).
 - `pairwise_grouping()`: `linkage="average"` (the old method is `linkage="single"`). Single linkage chains:
   on the sample papers its largest group held 153 spans; average linkage gives 27.
+- `standardize_constructs()` and `standardize_groups()`: `leaves_only=False` (was `True`). A span can now
+  also match a broad ELSST concept, such as TRUST or MOTIVATION.
+- `label_groups()`: `by="keywords"` (was `"both"`). The label is the TF-IDF keywords of the group.
 - `networkx` is a declared dependency (`save_map()` writes GraphML with it). PyTorch installed it already.
 
 ### Data in the package
