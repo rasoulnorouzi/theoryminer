@@ -96,6 +96,7 @@ jobs:
           grep "theoryminer/data/causal_map.html" wheel_files.txt
           grep "theoryminer/data/cytoscape.min.js" wheel_files.txt
           grep "theoryminer/data/cytoscape-fcose.js" wheel_files.txt
+          grep "theoryminer/py.typed" wheel_files.txt
 
       # A user installs the wheel, not this folder. So install the built wheel in a new
       # environment and use it from another folder, where the repository cannot help.

@@ -78,8 +78,9 @@ def _score_summary(best, n_items, threshold):
     return f"{text} | {unmatched}"
 
 
-def standardize_constructs(items, taxonomy="elsst", strategy="enriched", top=5,
-                           embeddings="allmpnet", leaves_only=False, cache=True, threshold=None):
+def standardize_constructs(items: list, taxonomy: str = "elsst", strategy: str = "enriched", top: int = 5,
+                           embeddings: str = "allmpnet", leaves_only: bool = False, cache: bool = True,
+                           threshold: float | None = None) -> dict:
     """Map each span to its closest taxonomy concepts.
 
     Args:
@@ -116,8 +117,9 @@ def standardize_constructs(items, taxonomy="elsst", strategy="enriched", top=5,
     return result
 
 
-def standardize_groups(groups, name_by="mean_sim", taxonomy="elsst", strategy="enriched",
-                       top=5, embeddings="allmpnet", leaves_only=False, cache=True, threshold=None):
+def standardize_groups(groups: dict, name_by: str = "mean_sim", taxonomy: str = "elsst",
+                       strategy: str = "enriched", top: int = 5, embeddings: str = "allmpnet",
+                       leaves_only: bool = False, cache: bool = True, threshold: float | None = None) -> dict:
     """Give each group of spans its closest taxonomy concepts.
 
     Args:

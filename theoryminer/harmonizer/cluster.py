@@ -16,7 +16,8 @@ from .pairwise import central_member
 from .spans import collect_spans
 
 
-def clusterer(items, embeddings="allmpnet", min_cluster_size=2, min_samples=2, umap=None):
+def clusterer(items: list, embeddings: str = "allmpnet", min_cluster_size: int = 2, min_samples: int = 2,
+              umap: dict | None = None) -> dict:
     """Cluster the spans with HDBSCAN.
 
     Args:

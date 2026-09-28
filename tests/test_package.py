@@ -56,3 +56,30 @@ def test_the_downloader_imports_on_this_system(tmp_path, monkeypatch):
     from doi_downloader import doi_downloader
     from doi_downloader.plugins import coreacuk, googlescholar, unpaywall
     assert callable(doi_downloader.download)
+
+
+# --- The editor support: type hints, __all__ and py.typed (since 0.2.2) ---------------------------
+
+import inspect
+import os
+
+
+def test_all_lists_the_public_names():
+    assert set(theoryminer.__all__) == set(PUBLIC_NAMES) | {"__version__"}
+
+
+def test_every_public_function_has_complete_type_hints():
+    # An editor shows these hints: the kind of each setting, and what the function returns.
+    for name in theoryminer.__all__:
+        function = getattr(theoryminer, name)
+        if not inspect.isfunction(function):
+            continue
+        signature = inspect.signature(function)
+        for parameter in signature.parameters.values():
+            assert parameter.annotation is not inspect.Parameter.empty, f"{name}({parameter.name}) has no hint"
+        assert signature.return_annotation is not inspect.Signature.empty, f"{name}() has no return hint"
+
+
+def test_the_package_has_the_py_typed_marker():
+    package_dir = os.path.dirname(theoryminer.__file__)
+    assert os.path.isfile(os.path.join(package_dir, "py.typed"))

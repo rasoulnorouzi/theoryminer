@@ -294,7 +294,8 @@ def _check_settings(min_papers, min_sentences, min_share):
         raise ValueError(f"min_share must be above 0.5 and at most 1; got {min_share}")
 
 
-def causal_map(relations, names, min_papers=1, min_sentences=2, min_share=MIN_SHARE):
+def causal_map(relations: list[dict], names: dict, min_papers: int = 1, min_sentences: int = 2,
+               min_share: float = MIN_SHARE) -> dict:
     """Build the causal map from the relations and the names of their groups.
 
     Each node is a construct. Each edge is "cause node -> effect node", with the number
@@ -420,7 +421,7 @@ def _write_graphml(path, cmap):
     nx.write_graphml(graph, path)
 
 
-def save_map(cmap, folder):
+def save_map(cmap: dict, folder: str) -> list[str]:
     """Write the causal map to a folder: three CSV tables and one GraphML file.
 
     The files:
@@ -528,7 +529,8 @@ def _write_page(path, page):
         fh.write(page)
 
 
-def draw_map(cmap, papers=None, save=None, title="Causal map", height=FRAME_HEIGHT):
+def draw_map(cmap: dict, papers: list[dict] | None = None, save: str | None = None,
+             title: str = "Causal map", height: int = FRAME_HEIGHT) -> None:
     """Draw the causal map as an interactive page.
 
     In a notebook, the page shows in the cell output. In a plain Python script, the

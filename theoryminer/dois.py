@@ -257,7 +257,8 @@ def _source_pdfs(source):
     raise ValueError(f"no file or folder at {source!r}; give a PDF file or a folder of PDF files")
 
 
-def extract_dois(source, save=None, first_pages=FIRST_PAGES, cache=True):
+def extract_dois(source: str, save: str | None = None, first_pages: int = FIRST_PAGES,
+                 cache: bool = True) -> list[dict]:
     """Find the DOI and the title of each paper in one PDF, or in every PDF in a folder.
 
     The DOI rule: the first DOI on page 1, else the first DOI on page 2. The title
@@ -423,7 +424,7 @@ def _cited_by_count(row):
     return (-row["n_seeds"], row["doi"])
 
 
-def extract_references(source, save=None, cache=True):
+def extract_references(source: str, save: str | None = None, cache: bool = True) -> list[dict]:
     """Find the DOIs that the seed papers cite, for one PDF or every PDF in a folder.
 
     The function reads every page of each seed paper and finds each DOI. It repairs a DOI

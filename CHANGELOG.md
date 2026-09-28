@@ -3,6 +3,15 @@
 Each release of `theoryminer` has one section. The newest release is first.
 The version numbers follow semantic versioning: before 1.0.0, a minor release (0.x.0) can change the API.
 
+## 0.2.2
+
+### Added
+
+- Editor support. The 13 public functions have type hints: the kind of each setting and of the result.
+  The package holds the marker file `py.typed` (PEP 561), so VS Code (Pylance), PyCharm and type checkers
+  use these hints: they suggest the settings, and they mark a wrong value, for example `min_words="four"`.
+- `__all__` in `theoryminer` and in `theoryminer.harmonizer` lists the public names.
+
 ## 0.2.1
 
 ### Changed

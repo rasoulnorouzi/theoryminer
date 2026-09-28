@@ -86,7 +86,8 @@ def _tree_labels(vectors, threshold, linkage):
     return labels - 1                               # fcluster counts from 1
 
 
-def pairwise_grouping(items, embeddings="allmpnet", threshold=0.69, linkage="average"):
+def pairwise_grouping(items: list, embeddings: str = "allmpnet", threshold: float = 0.69,
+                      linkage: str = "average") -> dict:
     """Group the spans by pairwise similarity.
 
     Args:

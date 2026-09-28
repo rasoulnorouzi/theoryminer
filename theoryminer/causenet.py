@@ -166,8 +166,8 @@ def _sentence_relations(row, pred, avoid_ambiguous, counts):
     return relations
 
 
-def causenet(sentences, threshold=0.8, mode="neural", decision="span_only",
-             batch_size=64, device="auto", avoid_ambiguous=True):
+def causenet(sentences: list, threshold: float = 0.8, mode: str = "neural", decision: str = "span_only",
+             batch_size: int = 64, device: str = "auto", avoid_ambiguous: bool = True) -> list[dict]:
     """Find cause-effect pairs in the sentences.
 
     Args:

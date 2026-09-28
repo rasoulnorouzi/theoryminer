@@ -234,8 +234,9 @@ def _download_one(doi, output_dir, licences, email, core_api_key, serpapi_key):
     return _row(doi, "not_found", licence=licence, note="; ".join(notes))
 
 
-def download_papers(dois, output_dir, licences=None, email=None, core_api_key=None, serpapi_key=None,
-                    save=None):
+def download_papers(dois: list | str, output_dir: str, licences: list[str] | None = None,
+                    email: str | None = None, core_api_key: str | None = None,
+                    serpapi_key: str | None = None, save: str | None = None) -> list[dict]:
     """Download the open-access PDFs of the DOIs into a folder. Return one status row per DOI.
 
     The function asks OpenAlex for the licence and the PDF links of each paper. With

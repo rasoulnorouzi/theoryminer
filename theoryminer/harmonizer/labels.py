@@ -64,7 +64,7 @@ def _label(spans, central, keywords, by):
     return f"{central} | {words}"
 
 
-def label_groups(groups, by="keywords", top=3):
+def label_groups(groups: dict, by: str = "keywords", top: int = 3) -> dict:
     """Label each group of spans. No taxonomy. No model.
 
     Args:

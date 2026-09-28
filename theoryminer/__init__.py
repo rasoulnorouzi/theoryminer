@@ -20,3 +20,8 @@ from .harmonizer import (standardize_constructs, standardize_groups, pairwise_gr
                          clusterer, label_groups)
 from .causal_map import causal_map, draw_map, save_map
 from .download import download_papers
+
+# The public names. An editor suggests these after "theoryminer.".
+__all__ = ["harvest", "extract_dois", "extract_references", "download_papers", "causenet",
+           "standardize_constructs", "standardize_groups", "pairwise_grouping", "clusterer", "label_groups",
+           "causal_map", "draw_map", "save_map", "DEFAULT_STEPS", "STEPS", "__version__"]

@@ -30,6 +30,7 @@ import json
 import os
 import re
 import unicodedata
+from collections.abc import Callable
 
 from nltk.tokenize.punkt import PunktParameters, PunktSentenceTokenizer
 
@@ -749,8 +750,10 @@ def _print_summary(source, kept, dropped):
             print(f"  {doc_counts[doc_id]:>8,}  {doc_id}")
 
 
-def harvest(source, pages=None, skip_pages=None, steps=None,
-            min_words=4, max_words=80, cache=True):
+def harvest(source: str, pages: str | int | list[int] | None = None,
+            skip_pages: str | int | list[int] | None = None,
+            steps: list[str | Callable] | None = None,
+            min_words: int = 4, max_words: int = 80, cache: bool = True) -> dict:
     """Read one PDF, or every PDF in a folder, and return clean sentences with a drop log.
 
     For one PDF, a bad file raises a ValueError. For a folder, a bad file

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "theoryminer"
-version = "0.2.1"
+version = "0.2.2"
 description = "Assemble theories from text: extract cause-effect claims and harmonise their constructs."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -58,7 +58,7 @@ include = ["theoryminer*"]
 
 # The ELSST thesaurus ships inside the package, so pip users need no extra file.
 [tool.setuptools.package-data]
-theoryminer = ["data/*"]
+theoryminer = ["data/*", "py.typed"]      # py.typed: editors use the type hints (PEP 561)
 
 # A plain "pytest" runs the fast tests only. "pytest -m slow" runs the tests that download models.
 [tool.pytest.ini_options]
