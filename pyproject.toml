@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "theoryminer"
-version = "0.2.0"
+version = "0.2.1"
 description = "Assemble theories from text: extract cause-effect claims and harmonise their constructs."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,12 +37,13 @@ dependencies = [
     "sentence-transformers",
     "umap-learn",                 # clusterer(..., umap={...}); installed by default since 0.1.1
     "networkx",                   # save_map() writes the GraphML file; torch installs it too
+    "tmsr-doi-downloader; python_version >= '3.11'",   # download_papers(): more sources; since 0.2.1
 ]
 
 [project.optional-dependencies]
 umap = ["umap-learn"]               # kept so that old commands like pip install "theoryminer[umap]" still work
 notebooks = ["pandas", "ipykernel"]
-download = ["tmsr-doi-downloader; python_version >= '3.11'"]   # download_papers(): more sources (Python 3.11+)
+download = ["tmsr-doi-downloader; python_version >= '3.11'"]   # kept so that old commands like pip install "theoryminer[download]" still work
 dev = ["pytest"]
 
 [project.urls]

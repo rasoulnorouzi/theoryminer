@@ -102,10 +102,11 @@ that cannot be read, does not stop the run. The drop log gets one row for it, wi
 `extract_references()` finds the DOIs in the references of seed papers, for a snowball search. It
 repairs the DOIs that a PDF cuts at a line end. On the sample papers, 214 of its 215 DOIs exist at
 doi.org. `download_papers()` downloads their open-access PDFs. It checks the licence of each paper
-with OpenAlex first (free, no key), so `licences=["cc-by"]` downloads only CC BY papers. For more
-sources, install the extra: `pip install "theoryminer[download]"` (Python 3.11 or newer). It adds
-`tmsr-doi-downloader`, whose Unpaywall, CORE and Google Scholar sources take `email=`, `core_api_key=`
-and `serpapi_key=`. The tutorial, section 11, runs one snowball round.
+with OpenAlex first (free, no key), so `licences=["cc-by"]` downloads only CC BY papers. Then it uses
+`tmsr-doi-downloader`, which `pip install theoryminer` installs on Python 3.11 or newer (on Python 3.10
+the function uses OpenAlex only). Its Unpaywall, CORE and Google Scholar sources take `email=`,
+`core_api_key=` and `serpapi_key=`, or the environment variables `UNPAYWALL_EMAIL`, `CORE_API_KEY` and
+`SERPAPI_KEY`. The tutorial, section 11, runs one snowball round.
 
 ## The causal map
 

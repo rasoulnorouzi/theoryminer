@@ -2,6 +2,7 @@
 tmsr-doi-downloader are replaced by fakes."""
 
 import csv
+import sys
 
 import pytest
 
@@ -126,3 +127,14 @@ def _no_doi_downloader(real_import):
             raise ImportError(name)
         return real_import(name, *args, **kwargs)
     return fake_import
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="tmsr-doi-downloader needs Python 3.11")
+def test_a_key_that_is_not_passed_keeps_its_environment_value(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from doi_downloader.plugins import coreacuk, unpaywall
+    monkeypatch.setattr(unpaywall, "UNPAYWALL_EMAIL", "from-the-environment@lab.org")
+    monkeypatch.setattr(coreacuk, "CORE_API_KEY", "key-from-the-environment")
+    download._set_keys(email=None, core_api_key="passed-key", serpapi_key=None)
+    assert unpaywall.UNPAYWALL_EMAIL == "from-the-environment@lab.org"
+    assert coreacuk.CORE_API_KEY == "passed-key"

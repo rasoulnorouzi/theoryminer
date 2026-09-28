@@ -10,9 +10,11 @@ The sources, in this order:
 1. OpenAlex (free, no key). It gives the licence of the best open-access copy
    and the PDF links of the paper. The licence check comes first, so a paper
    that the licences setting leaves out is never downloaded.
-2. tmsr-doi-downloader, when it is installed: pip install "theoryminer[download]"
-   (Python 3.11 or newer). It tries CORE (core_api_key=), Crossref, doi.org,
-   Google Scholar (serpapi_key=, a paid service) and Unpaywall (email=).
+2. tmsr-doi-downloader. pip install theoryminer installs it on Python 3.11 or
+   newer (since 0.2.1). On Python 3.10 the function uses OpenAlex only. It tries
+   CORE (core_api_key=), Crossref, doi.org, Google Scholar (serpapi_key=, a paid
+   service) and Unpaywall (email=). A key that you do not pass comes from its
+   environment variable: CORE_API_KEY, SERPAPI_KEY or UNPAYWALL_EMAIL.
 
 Not every paper can be downloaded: many publishers block robots. A failed DOI
 does not stop the run. Each DOI gets one row with its status. A PDF that is
@@ -166,6 +168,23 @@ def _fetch_pdf(urls, path):
 # 2. tmsr-doi-downloader, when it is installed.
 # ---------------------------------------------------------------------------
 
+def _set_keys(email, core_api_key, serpapi_key):
+    """Give the keys to the sources of tmsr-doi-downloader. A key that is None is not changed.
+
+    The sources read their keys once, at import, from the environment variables. So a key
+    that you pass must be set on the source module. A key that you do not pass keeps the
+    value of its environment variable.
+    """
+    from doi_downloader.plugins import coreacuk, googlescholar, unpaywall
+
+    if email is not None:
+        unpaywall.UNPAYWALL_EMAIL = email
+    if core_api_key is not None:
+        coreacuk.CORE_API_KEY = core_api_key
+    if serpapi_key is not None:
+        googlescholar.SERPAPI_KEY = serpapi_key
+
+
 def _tmsr_download(doi, path, email, core_api_key, serpapi_key):
     """Try tmsr-doi-downloader. Return (saved, note). It runs in CACHE_DIR, and its output is silenced."""
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -175,13 +194,10 @@ def _tmsr_download(doi, path, email, core_api_key, serpapi_key):
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             from doi_downloader import doi_downloader as ddl
-            from doi_downloader.plugins import coreacuk, googlescholar, unpaywall
-            unpaywall.UNPAYWALL_EMAIL = email          # the sources read their keys once, at import
-            coreacuk.CORE_API_KEY = core_api_key
-            googlescholar.SERPAPI_KEY = serpapi_key
+            _set_keys(email, core_api_key, serpapi_key)
             saved = ddl.download(doi, output_dir=folder, enable_benchmark=False)
     except ImportError:
-        return False, "tmsr-doi-downloader is not installed"
+        return False, "tmsr-doi-downloader is not installed (it needs Python 3.11 or newer)"
     except Exception as error:                        # one failed source must not stop the run
         return False, f"tmsr-doi-downloader: {type(error).__name__}"
     finally:
@@ -224,7 +240,8 @@ def download_papers(dois, output_dir, licences=None, email=None, core_api_key=No
 
     The function asks OpenAlex for the licence and the PDF links of each paper. With
     `licences`, it downloads only the papers with one of those licences. Then it tries the
-    OpenAlex links, then tmsr-doi-downloader when it is installed. It reads robots.txt,
+    OpenAlex links, then tmsr-doi-downloader (installed with the package on Python 3.11 or
+    newer). It reads robots.txt,
     waits WAIT seconds between requests, and keeps a file only when it is a real PDF.
     A PDF that is already in the folder is not downloaded again. The function writes the
     PDFs into output_dir.
@@ -240,8 +257,11 @@ def download_papers(dois, output_dir, licences=None, email=None, core_api_key=No
             "public-domain", "other-oa", "publisher-specific-oa", "none" and "unknown".
         email: your email address, for Unpaywall in tmsr-doi-downloader (it refuses a
             made-up address). OpenAlex also gets it, for its faster "polite pool".
+            None keeps the environment variable UNPAYWALL_EMAIL, when it is set.
         core_api_key: a free key from core.ac.uk, for CORE in tmsr-doi-downloader.
+            None keeps the environment variable CORE_API_KEY.
         serpapi_key: a key of SerpAPI (a paid service), for Google Scholar in tmsr-doi-downloader.
+            None keeps the environment variable SERPAPI_KEY.
         save: None writes no report file. A path that ends with ".csv", or a folder
             (then <folder>/downloads.csv), gets the report rows.
 

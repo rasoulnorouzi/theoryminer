@@ -3,6 +3,21 @@
 Each release of `theoryminer` has one section. The newest release is first.
 The version numbers follow semantic versioning: before 1.0.0, a minor release (0.x.0) can change the API.
 
+## 0.2.1
+
+### Changed
+
+- `pip install theoryminer` installs `tmsr-doi-downloader` on Python 3.11 or newer, so `download_papers()`
+  has all its sources without an extra. On Python 3.10 it is left out, and `download_papers()` uses
+  OpenAlex only. The old command `pip install "theoryminer[download]"` still works.
+- CI installs and tests the package on Windows and macOS with Python 3.11, 3.12 and 3.13, and on Linux
+  with Python 3.10 to 3.13.
+
+### Fixed
+
+- `download_papers()` no longer clears a key that you set as an environment variable (`UNPAYWALL_EMAIL`,
+  `CORE_API_KEY`, `SERPAPI_KEY`). A key that you do not pass as an argument keeps its environment value.
+
 ## 0.2.0
 
 ### Added

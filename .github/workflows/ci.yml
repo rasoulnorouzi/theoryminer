@@ -1,7 +1,9 @@
 # CI: test every push to main and every pull request. This workflow never publishes.
 #
 # Three jobs:
-#   fast   the fast tests (no model download) on Linux, Windows and macOS
+#   fast   the fast tests (no model download) on Linux, Windows and macOS. Windows and macOS run
+#          Python 3.11 and 3.13 too: they prove that pip installs every dependency on each system,
+#          tmsr-doi-downloader included (a normal dependency on Python 3.11+ since 0.2.1)
 #   build  build the package, check it, install the built wheel outside the repository and use it
 #   slow   the tests that load the real models; not on pull requests, and every Monday
 
@@ -35,9 +37,17 @@ jobs:
         python: ["3.10", "3.11", "3.12", "3.13"]
         include:
           - os: windows-latest
+            python: "3.11"
+          - os: windows-latest
             python: "3.12"
+          - os: windows-latest
+            python: "3.13"
+          - os: macos-latest
+            python: "3.11"
           - os: macos-latest
             python: "3.12"
+          - os: macos-latest
+            python: "3.13"
     steps:
       - uses: actions/checkout@v4
 
@@ -109,6 +119,8 @@ jobs:
           names = {0: {'central': 'a', 'members': ['a'], 'name': 'a'}, 1: {'central': 'b', 'members': ['b'], 'name': 'b'}}
           draw_map(causal_map(relations, names), save='map.html')
           assert 'cytoscape' in open('map.html').read()
+          import importlib.util
+          assert importlib.util.find_spec('doi_downloader') is not None, 'the wheel did not install tmsr-doi-downloader'
           print('the installed wheel works')
           "
 
