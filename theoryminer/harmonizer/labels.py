@@ -65,52 +65,46 @@ def _label(spans, central, keywords, by):
 
 
 def label_groups(groups: dict, by: str = "keywords", top: int = 3) -> dict:
-    """Label each group of spans. No taxonomy. No model.
+    """Give each group of spans a name. No thesaurus, no model.
+
+    The keywords of a group are the words that its members repeat and that the other groups
+    do not use (class-based TF-IDF):
+
+        score(word) = (count in the group / words in the group)
+                      * log(1 + groups / groups that hold the word)
+
+    Function words ("the", "of", ...) never enter a name. A group with one member takes the
+    member as its name. The spans are not changed. The function reads no file.
 
     Args:
-        groups: the dict from pairwise_grouping() or clusterer():
-            {span: {"group": int, "central": span}}.
-        by: how the label is made.
-            "medoid"   the central member, one span.
-            "keywords" the `top` keywords, joined by a space (the default since 0.2.0;
-                       "both" before).
-            "both"     the medoid, a pipe, then the keywords.
-        top: how many keywords to keep for each group.
+        groups: The groups to name.
+            Values: the result of pairwise_grouping() or clusterer(): {span: {"group": id,
+            "central": span}}.
+            Default: none. Give the groups.
+        by: How the name is made.
+            Values: "keywords": the `top` keywords, joined by a space. "medoid": the central span.
+            "both": the central span, " | ", then the keywords.
+            Default "keywords" (since 0.2.0).
+        top: The number of keywords for each group.
+            Values: a whole number, 1 or more.
+            Default 3.
 
     Returns:
-        {group_id: {"central", "size", "members", "keywords", "name"}}.
-        See the module docstring for the shape of each field.
+        {key: group}: one dict per group. The key is the group id, or the span text for a noise
+        span. Each group has the keys
+            central   the central span of the group
+            size      the number of members
+            members   the spans of the group
+            keywords  up to `top` (word, score) pairs, best first
+            name      the name, made by `by`
 
-    How the keywords are ranked:
-        One group is one document. The score of a word is
-
-            (count in the group / words in the group)
-            * log(1 + groups / groups that hold the word)
-
-        The first factor rewards a word that the members repeat. The
-        second factor punishes a word that every group holds. So
-        "well-being" wins in its group, and "increased" sinks, although
-        the members repeat both. This is class-based TF-IDF.
-
-    Rules:
-        A group with one member takes the member as its label. Nothing
-        can be ranked there, so no size knob is needed.
-        Function words never enter a label. One short list in the module
-        holds them. The list serves the label only.
-        The label is for the graph node and for the reader. The spans
-        stay as they are; no function removes a word from a span.
-        The scores come back with the keywords, so a reader can see why
-        the function chose a label.
+    Raises:
+        ValueError: An unknown by.
 
     Example:
-        >>> clusters = clusterer(relations)
-        >>> labelled = label_groups(clusters, by="keywords", top=3)
-        >>> labelled[179]
-        {"central": "increased well-being and health outcomes", "size": 8,
-         "members": ["greater psychological health and well-being", ...],
-         "keywords": [("well-being", 1.597), ("health", 0.582),
-                      ("increased", 0.47)],
-         "name": "well-being health increased"}
+        >>> labelled = label_groups(clusterer(cards))                         # doctest: +SKIP
+        >>> labelled[1]["size"], labelled[1]["name"]                            # doctest: +SKIP
+        (5, 'loneliness reducing alleviate')
     """
     if by not in RULES:
         raise ValueError(f"unknown by {by!r}; choose one of {RULES}")

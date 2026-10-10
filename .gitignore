@@ -24,3 +24,8 @@ CLAUDE.md
 CLAUDE.local.md
 MEMORY.md
 .claude/
+tutorials/workshop
+
+# The documentation: the built book, and the reference pages that docs/make_api.py writes
+docs/book/
+docs/src/reference/

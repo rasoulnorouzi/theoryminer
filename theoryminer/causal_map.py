@@ -2,13 +2,13 @@
 
 The chain: relations -> groups -> names -> map.
 
-    from theoryminer import causal_map, draw_map, save_map, extract_dois
+    from theoryminer import causal_map, draw_map, save_map
     from theoryminer.harmonizer import pairwise_grouping, label_groups
 
     groups = pairwise_grouping(relations)
     names = label_groups(groups)
     cmap = causal_map(relations, names)
-    draw_map(cmap, papers=extract_dois("sample_files"))    # the interactive page
+    draw_map(cmap)                                          # the interactive page, with the DOI of each paper
     save_map(cmap, "outputs/my_map")                        # the tables and a GraphML file
 
 A node is a construct: a group from label_groups(), or a thesaurus concept from
@@ -296,34 +296,53 @@ def _check_settings(min_papers, min_sentences, min_share):
 
 def causal_map(relations: list[dict], names: dict, min_papers: int = 1, min_sentences: int = 2,
                min_share: float = MIN_SHARE) -> dict:
-    """Build the causal map from the relations and the names of their groups.
+    """Build the causal map from the relations and the names of their spans.
 
-    Each node is a construct. Each edge is "cause node -> effect node", with the number
-    of papers, sentences and relations that claim it. Self-loops and two-way pairs get flags. The
-    filters hide the weak edges. Nothing is deleted: a hidden edge is in "hidden" with
-    its drop_reason. The function reads no file and loads no model.
+    Each node is a construct: a named group, or a thesaurus concept. Each edge is "cause node
+    -> effect node", with the number of papers, sentences and relations that claim it.
+    Self-loops and two-way pairs get flags. A filter hides a weak edge, but deletes nothing:
+    a hidden edge goes to "hidden" with its drop_reason. The function reads no file and
+    loads no model.
 
     Args:
-        relations: the relation dicts from causenet().
-        names: the output of label_groups(), standardize_groups() or standardize_constructs(),
-            made from the same relations.
-        min_papers: show an edge only when at least this many papers claim it. The default 1
-            also works for one long book, where every edge has 1 paper.
-        min_sentences: show an edge only when at least this many different sentences claim it.
-            The default 2 hides the claims that only one sentence makes. Use 1 to show every edge.
-        min_share: a two-way pair gets one direction when one side has at least this share of
-            the papers of the pair. Else both edges are "contested".
+        relations: The relations from causenet().
+            Values: a list of relation dicts. Each relation needs rel_id, doc_id, cause and effect;
+            sent_id is used when it is there.
+            Default: none. Give the relations.
+        names: The names of the spans, made from the same relations.
+            Values: the result of label_groups() (a node is a group, named by its name),
+            standardize_groups() (a node is the best concept of a group; groups with the same best
+            concept share a node), or standardize_constructs() (a node is the best concept of a
+            span). A group or span without a concept keeps its own node, under its own text.
+            Default: none. Give the names.
+        min_papers: Show an edge only when at least this many papers claim it.
+            Values: a whole number, 1 or more.
+            Default 1: show the edge whatever the number of papers. This also suits one long book.
+        min_sentences: Show an edge only when at least this many different sentences claim it.
+            Values: a whole number, 1 or more.
+            Default 2: hide the claims that only one sentence makes. Use 1 to show every edge.
+        min_share: The share of the papers that one side of a two-way pair (A -> B and B -> A)
+            needs to be the main direction.
+            Values: a number above 0.5, up to 1.
+            Default 0.67: one side needs 2/3 of the papers. Then it is "dominant" and the other
+            side is "minority". Else both sides are "contested".
 
     Returns:
-        {"nodes":     {node_id: node dict},
-         "edges":     [edge dicts that are shown],
-         "hidden":    [edge dicts that a filter hides, with drop_reason],
-         "relations": {rel_id: relation dict},
-         "settings":  {"min_papers", "min_sentences", "min_share"}}
+        A dict with the keys
+            nodes      {node_id: node}: label, members, as_cause, as_effect, n_sentences, n_papers,
+                       role ("cause only", "effect only" or "cause and effect") and shown
+            edges      the shown edges: edge_id, source, target, n_papers, n_sentences, n_relations,
+                       rel_ids, doc_ids, direction ("one-way", "dominant", "minority" or
+                       "contested"), reciprocal, self_loop and drop_reason ("")
+            hidden     the hidden edges, with drop_reason "below_min_papers" or "below_min_sentences"
+            relations  {rel_id: relation}
+            papers     one dict per paper, {"doc_id", "doi", "title"}, from the relations; draw_map()
+                       shows them
+            settings   {"min_papers", "min_sentences", "min_share"}
 
     Raises:
-        ValueError: names has an unknown shape, a span of a relation is not in names,
-            or a setting is out of range.
+        ValueError: The relations are empty; names is empty or has an unknown shape; a span of a
+            relation is not in names; or a setting is out of its range.
 
     Example:
         >>> relations = [
@@ -357,6 +376,7 @@ def causal_map(relations: list[dict], names: dict, min_papers: int = 1, min_sent
     for relation in relations:
         relation_by_id[relation["rel_id"]] = relation
     cmap = {"nodes": nodes, "edges": shown, "hidden": hidden, "relations": relation_by_id,
+            "papers": _papers_of(relations),
             "settings": {"min_papers": min_papers, "min_sentences": min_sentences, "min_share": min_share}}
     _print_summary(cmap, len(relations))
     return cmap
@@ -425,14 +445,20 @@ def save_map(cmap: dict, folder: str) -> list[str]:
     """Write the causal map to a folder: three CSV tables and one GraphML file.
 
     The files:
-        nodes.csv     one row per node
+        nodes.csv     one row per node, also the nodes that no shown edge touches (shown False)
         edges.csv     one row per shown edge
         hidden.csv    one row per hidden edge, with its drop_reason
         map.graphml   every node and edge, for Gephi or Cytoscape desktop
+    In the CSV files, a list (members, doc_ids, rel_ids) is one text, joined by " | ".
+    The function overwrites old files of the same name.
 
     Args:
-        cmap: the output of causal_map().
-        folder: the folder for the files. A missing folder is made. Old files are overwritten.
+        cmap: The map to save.
+            Values: the result of causal_map().
+            Default: none. Give the map.
+        folder: The folder for the four files.
+            Values: the path of a folder. A missing folder is made.
+            Default: none. Give a folder.
 
     Returns:
         A list of the paths of the four files.
@@ -460,6 +486,25 @@ def save_map(cmap: dict, folder: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # 5. The interactive page.
 # ---------------------------------------------------------------------------
+
+def _papers_of(relations):
+    """Return one row per paper, {"doc_id", "doi", "title"}, from the doi and title that causenet() copies to each relation.
+
+    A relation from an older causenet() result has no doi or title; its paper gets "" for both.
+
+    Example:
+        >>> _papers_of([{"doc_id": "p1", "doi": "10.1/x", "title": "T"}, {"doc_id": "p1"}, {"doc_id": "p2"}])
+        [{'doc_id': 'p1', 'doi': '10.1/x', 'title': 'T'}, {'doc_id': 'p2', 'doi': '', 'title': ''}]
+    """
+    papers = {}
+    for relation in relations:
+        row = papers.setdefault(relation["doc_id"], {"doc_id": relation["doc_id"], "doi": "", "title": ""})
+        if not row["doi"]:
+            row["doi"] = relation.get("doi", "")
+        if not row["title"]:
+            row["title"] = relation.get("title", "")
+    return list(papers.values())
+
 
 def _paper_sources(papers):
     """Return {doc_id: {"doi", "title", "file"}} from the rows of extract_dois(). None gives {}."""
@@ -533,31 +578,41 @@ def draw_map(cmap: dict, papers: list[dict] | None = None, save: str | None = No
              title: str = "Causal map", height: int = FRAME_HEIGHT) -> None:
     """Draw the causal map as an interactive page.
 
-    In a notebook, the page shows in the cell output. In a plain Python script, the
-    function writes the page to causal_map.html. The page is one HTML file that works
-    offline. On the page you can hover over a node or an edge, click an edge to read
-    all its sentences, search, drag, zoom, change the filters, and save a picture
-    (PNG, JPG or SVG). The page gets every edge, also the hidden edges, and its
-    sliders start at the filter values of causal_map().
+    In a notebook, the page shows in the cell output. In a plain Python script, the function
+    writes the page to causal_map.html. The page is one HTML file that works offline. On the
+    page you can hover over a node or an edge, click an edge to read all its sentences, search,
+    drag, zoom, change the filters, and save a picture (PNG, JPG or SVG). The page gets every
+    edge, also the hidden edges, and its sliders start at the filter values of causal_map().
 
     Args:
-        cmap: the output of causal_map().
-        papers: the rows of extract_dois(), for the source of each sentence: its DOI,
-            else the paper title, else the file name. None shows the doc_id.
-        save: a path for the HTML file, for example "outputs/map.html". The file is
-            written in addition to the notebook output. None writes no file in a
-            notebook, and causal_map.html in a script.
-        title: the title at the top of the page.
-        height: the height of the map in a notebook cell, in pixels.
+        cmap: The map to draw.
+            Values: the result of causal_map().
+            Default: none. Give the map.
+        papers: The source of each paper, shown with each sentence: the DOI as a link, else the
+            paper title, else the file name.
+            Values: None, or the rows of extract_dois() (they replace the papers of the map).
+            Default None: use cmap["papers"], the DOI and title that harvest() found for each paper.
+            A map from relations without them shows the doc_id (the file name) of each paper.
+        save: Where to write the page as an HTML file, in addition to the notebook output.
+            Values: None, or a path such as "outputs/map.html".
+            Default None: write no file in a notebook, and causal_map.html in a script.
+        title: The title at the top of the page.
+            Values: any text.
+            Default "Causal map".
+        height: The height of the map in a notebook cell.
+            Values: a whole number of pixels.
+            Default 720.
 
     Returns:
-        None. The function shows the page or writes the file.
+        None. The function shows the page, or writes the file, or both.
 
     Example:
-        >>> draw_map(cmap, papers=extract_dois("sample_files"))              # doctest: +SKIP
-        >>> draw_map(cmap, save="outputs/map.html")                         # doctest: +SKIP
+        >>> draw_map(cmap)                                            # doctest: +SKIP
+        >>> draw_map(cmap, save="outputs/map.html")                   # doctest: +SKIP
         saved page: outputs/map.html
     """
+    if papers is None:
+        papers = cmap.get("papers")
     page = _page_html(cmap, papers, title)
     if save is not None:
         _write_page(save, page)

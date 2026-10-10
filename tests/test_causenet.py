@@ -112,3 +112,16 @@ def test_a_relation_with_an_empty_span_is_skipped_and_counted():
     kept = _sentence_relations(row, pred, True, counts)
     assert [r["rel_id"] for r in kept] == ["s1r01"]
     assert counts["empty"] == 1
+
+
+def test_each_relation_gets_the_doi_and_title_of_its_sentence():
+    from theoryminer.causenet import _sentence_relations
+    row = {"sent_id": "d000p0001s001", "doc_id": "p1", "page": 3, "doi": "10.1/x", "title": "A title",
+           "clean": "Social support reduces stress."}
+    pred = {"causal": True, "relations": [{"cause": "social support", "effect": "stress"}]}
+    counts = {"tidied": 0, "verbatim": 0, "empty": 0, "ambiguous": []}
+    relation = _sentence_relations(row, pred, True, counts)[0]
+    assert (relation["doi"], relation["title"]) == ("10.1/x", "A title")
+    row_without = {key: value for key, value in row.items() if key not in ("doi", "title")}
+    relation = _sentence_relations(row_without, pred, True, counts)[0]
+    assert (relation["doi"], relation["title"]) == ("", "")

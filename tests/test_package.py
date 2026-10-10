@@ -83,3 +83,59 @@ def test_every_public_function_has_complete_type_hints():
 def test_the_package_has_the_py_typed_marker():
     package_dir = os.path.dirname(theoryminer.__file__)
     assert os.path.isfile(os.path.join(package_dir, "py.typed"))
+
+
+# --- the folders prepare/ and download/ (0.3.0), and the module paths before 0.3.0 ------------
+
+import types
+
+
+def test_the_new_module_paths_give_the_modules():
+    harvest_module = importlib.import_module("theoryminer.prepare.harvest")
+    dois_module = importlib.import_module("theoryminer.prepare.dois")
+    papers_module = importlib.import_module("theoryminer.download.papers")
+    assert isinstance(theoryminer.prepare.harvest, types.ModuleType)
+    assert harvest_module.harvest is theoryminer.harvest
+    assert dois_module.extract_dois is theoryminer.extract_dois
+    assert papers_module.download_papers is theoryminer.download_papers
+
+
+def test_the_old_module_paths_still_work():
+    # Old code and notebooks import theoryminer.harvest and theoryminer.dois. Until 0.4.0 they get the new modules.
+    old_harvest = importlib.import_module("theoryminer.harvest")
+    assert old_harvest is importlib.import_module("theoryminer.prepare.harvest")
+    from theoryminer.dois import _text_dois
+    from theoryminer.download import download_papers
+    assert callable(_text_dois)
+    assert download_papers is theoryminer.download_papers
+
+
+def test_an_old_path_import_does_not_replace_the_public_function():
+    importlib.import_module("theoryminer.harvest")
+    from theoryminer import harvest
+    assert callable(harvest)
+    assert not isinstance(harvest, types.ModuleType)
+
+
+# --- the tutorial installs the version of this release (since 0.3.0) ----------------------------
+
+import json
+
+
+def first_code_cell(path):
+    """Return the text of the first code cell of a notebook."""
+    with open(path, encoding="utf-8") as fh:
+        cells = json.load(fh)["cells"]
+    for cell in cells:
+        if cell["cell_type"] == "code":
+            return "".join(cell["source"])
+    return ""
+
+
+def test_the_tutorial_installs_the_version_of_this_release():
+    # Colab installs the version in the first cell. It must be the version that the notebook is written for.
+    pinned = re.search(r'theoryminer==([0-9][^"\s]*)', first_code_cell("tutorials/TUTORIAL.ipynb"))
+    assert pinned, "the first code cell of TUTORIAL.ipynb installs no fixed version"
+    with open("pyproject.toml", encoding="utf-8") as fh:
+        version = re.search(r'^version = "([^"]+)"', fh.read(), re.M).group(1)
+    assert pinned.group(1) == version, f"TUTORIAL.ipynb installs {pinned.group(1)}; pyproject.toml says {version}"

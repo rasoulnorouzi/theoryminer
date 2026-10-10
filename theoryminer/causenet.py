@@ -21,6 +21,15 @@ from .harmonizer.spans import is_vague_span, tidy_span
 # "auto" tries an NVIDIA GPU ("cuda"), then an Apple GPU ("mps"), then the CPU.
 DEVICES = ["auto", "cpu", "cuda", "mps"]
 
+# The permitted values of the mode setting, and the name that the model uses for each.
+# The model knows "neural_only" and "auto". Before 0.3.0 any other value, also "heuristic",
+# ran the neural path without a message.
+MODES = {"neural": "neural_only", "auto": "auto"}
+
+# The permitted values of the decision setting. The model runs "cls+span" for any other value,
+# so causenet() checks the value first.
+DECISIONS = ["span_only", "cls+span", "cls_only"]
+
 # The model loads once and stays in memory for the next calls.
 _MODEL = None
 _TOKENIZER = None
@@ -105,8 +114,27 @@ def _load_model(device="auto"):
 
 def _run_model(texts, mode, threshold, decision):
     """Run SocioCausaNet on a list of texts. Return one prediction dict per text."""
-    return _MODEL.predict(texts, tokenizer=_TOKENIZER, rel_mode=mode,
+    return _MODEL.predict(texts, tokenizer=_TOKENIZER, rel_mode=MODES[mode],
                           rel_threshold=threshold, cause_decision=decision)
+
+
+def _check_settings(threshold, mode, decision, batch_size):
+    """Raise a ValueError for a setting of causenet() that the model would not accept, or would misread.
+
+    Example:
+        >>> _check_settings(0.8, "heuristic", "span_only", 64)
+        Traceback (most recent call last):
+        ...
+        ValueError: unknown mode 'heuristic'; choose one of ['neural', 'auto']
+    """
+    if mode not in MODES:
+        raise ValueError(f"unknown mode {mode!r}; choose one of {list(MODES)}")
+    if decision not in DECISIONS:
+        raise ValueError(f"unknown decision {decision!r}; choose one of {DECISIONS}")
+    if not 0 <= threshold <= 1:
+        raise ValueError(f"threshold must be from 0 to 1; got {threshold}")
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be 1 or more; got {batch_size}")
 
 
 def _predict_batch(texts, mode, threshold, decision):
@@ -162,38 +190,77 @@ def _sentence_relations(row, pred, avoid_ambiguous, counts):
             counts["verbatim"] += 1
         relations.append({"rel_id": f"{row['sent_id']}r{k:02d}", "sent_id": row["sent_id"],
                           "doc_id": row["doc_id"], "page": row.get("page", 0),
-                          "cause": cause, "effect": effect, "sentence": row["clean"]})
+                          "cause": cause, "effect": effect, "sentence": row["clean"],
+                          "doi": row.get("doi", ""), "title": row.get("title", "")})
     return relations
 
 
 def causenet(sentences: list, threshold: float = 0.8, mode: str = "neural", decision: str = "span_only",
              batch_size: int = 64, device: str = "auto", avoid_ambiguous: bool = True) -> list[dict]:
-    """Find cause-effect pairs in the sentences.
+    """Find the cause -> effect pairs in the sentences.
+
+    The model rasoultilburg/SocioCausaNet reads one sentence at a time. It decides whether the
+    sentence is causal, marks the cause spans and the effect spans, and links each cause to
+    each effect. The function then repairs each span with tidy_span(), which removes no word,
+    and gives each relation the path back to its sentence. The first call loads the model
+    (about 440 MB, downloaded on first use). The function writes no file. Keep the result in
+    a variable: a large corpus takes long on a CPU.
 
     Args:
-        sentences: The sentence rows, as in harvest()["sentences"].
-            A plain list of strings also works.
-        threshold: Confidence needed to accept a relation (rel_threshold).
-        mode: How the model links cause and effect: "neural", "auto",
-            or "heuristic".
-        decision: What makes a sentence causal: "span_only" (the default since
-            0.2.0: a cause span and an effect span are enough), "cls+span"
-            (also the sentence classifier must say causal; the default before
-            0.2.0), or "cls_only".
-        batch_size: Sentences per model call. On a GPU a larger value is
-            usually faster. Lower it after a CUDA "out of memory" error.
-        device: Where the model runs: "auto" (an NVIDIA GPU, else an Apple GPU,
-            else the CPU), "cpu", "cuda" or "mps". If the model fails on an
-            Apple GPU, it moves to the CPU and the run goes on.
-        avoid_ambiguous: True (the default) skips a relation whose cause or effect
-            only points to another sentence: "this", "it", "such things" (the rule
-            is harmonizer.spans.is_vague_span). The summary prints the count and
-            examples. False keeps every relation.
+        sentences: The sentences to read.
+            Values: the rows of harvest()["sentences"] (the function reads "clean", "sent_id",
+            "doc_id" and "page"), or a plain list of strings (then doc_id is "input", page is 0,
+            and sent_id is "s0000", "s0001", ...).
+            Default: none. Give the sentences.
+        threshold: The score that a cause -> effect pair needs to become a relation.
+            Values: a number from 0 to 1. A lower value gives more relations and more errors.
+            Default 0.8: keep a pair with a score of 0.8 or more.
+        mode: How the model links each cause to each effect.
+            Values: "neural": the model scores every cause -> effect pair, and `threshold`
+            decides. "auto": when a sentence has only one cause or only one effect, every pair
+            is kept without a score; else as "neural".
+            Default "neural".
+        decision: The rule that makes a sentence causal.
+            Values: "span_only": the sentence has a cause span and an effect span.
+            "cls+span": also the sentence classifier must say causal (the default before 0.2.0).
+            "cls_only": only the sentence classifier decides.
+            Default "span_only".
+        batch_size: The number of sentences in one model call.
+            Values: a whole number, 1 or more. On a GPU a larger value is often faster. Lower it
+            after a GPU "out of memory" error.
+            Default 64.
+        device: Where the model runs.
+            Values: "auto", "cpu", "cuda" (an NVIDIA GPU) or "mps" (the GPU of an Apple Silicon
+            Mac). If the model fails on an Apple GPU, it moves to the CPU and the run goes on.
+            Default "auto": an NVIDIA GPU when torch sees one, else the Apple GPU, else the CPU.
+        avoid_ambiguous: Whether to skip a relation whose cause or effect only points to another
+            sentence: "this", "it", "such things" (the rule is harmonizer.spans.is_vague_span).
+            Values: True or False.
+            Default True: skip these relations. The summary prints their count and examples.
+            False keeps every relation.
 
     Returns:
-        A list of dicts, one per relation, with the keys:
-        rel_id, sent_id, doc_id, page, cause, effect, sentence.
+        A list of dicts, one per relation, with the keys
+            rel_id    sent_id + "r" + the number of the relation in its sentence: "d000p0012s003r01"
+            sent_id, doc_id, page   from the sentence row
+            cause     the cause span, in lowercase
+            effect    the effect span, in lowercase
+            sentence  the clean sentence
+            doi       the DOI of the paper, from harvest(), or "" (also for a plain list of strings)
+            title     the title of the paper, from harvest(), or ""
+
+    Raises:
+        ValueError: An unknown mode, decision or device, a threshold outside 0 to 1, a
+            batch_size below 1, or a device that torch cannot see ("cuda" without an NVIDIA GPU).
+
+    Example:
+        >>> relations = causenet(["Social support increases feelings of security and well-being."])   # doctest: +SKIP
+        >>> [(r["cause"], r["effect"]) for r in relations]                                           # doctest: +SKIP
+        [('social support', 'feelings of security and well-being')]
     """
+    # A wrong setting stops the call before the model loads.
+    _check_settings(threshold, mode, decision, batch_size)
+
     # Accept plain strings, so a quick test needs no harvest() call.
     rows = []
     for i, s in enumerate(sentences):

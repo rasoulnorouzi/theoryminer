@@ -88,20 +88,44 @@ def _tree_labels(vectors, threshold, linkage):
 
 def pairwise_grouping(items: list, embeddings: str = "allmpnet", threshold: float = 0.69,
                       linkage: str = "average") -> dict:
-    """Group the spans by pairwise similarity.
+    """Group the spans that are similar, pair by pair.
+
+    The function turns each span into a vector and joins spans whose cosine reaches
+    `threshold`. `linkage` decides when a span joins a group that has more members. Each
+    group gets a central span: the member closest to all the others. Every span is in a
+    group, so there is no noise. The function loads the embedding model.
 
     Args:
-        items: relations from causenet(), or a plain list of span strings.
-        embeddings: model shorthand or a Hugging Face id.
-        threshold: the cosine similarity that a span needs to join a group.
-        linkage: how a span is compared with a group: "average" (the mean cosine to the
-            members), "complete" (every member), or "single" (one member; Paper 3's method).
+        items: The spans to work on.
+            Values: the relations from causenet() (the function reads "cause" and "effect"), or a
+            plain list of span strings. Each unique span is used once.
+            Default: none. Give the relations or the spans.
+        embeddings: The model that turns a text into a vector.
+            Values: "allmpnet" (sentence-transformers/all-mpnet-base-v2), "bge_base"
+            (BAAI/bge-base-en-v1.5), "minilm" (sentence-transformers/all-MiniLM-L6-v2, small and
+            fast), or the name of another sentence-transformers model on Hugging Face.
+            Default "allmpnet": the model of Paper 3. The default thresholds were calibrated for it.
+        threshold: The cosine that a span needs to join a group.
+            Values: a number from -1 to 1 (in practice 0.5 to 0.9). A higher value gives smaller,
+            stricter groups.
+            Default 0.69: the value of Paper 3, calibrated for "allmpnet" with "single" linkage.
+        linkage: How a span is compared with a group.
+            Values: "average": the mean cosine to all the members reaches `threshold`.
+            "complete": the cosine to every member reaches `threshold`.
+            "single": the cosine to one member reaches `threshold`. This can chain unrelated
+            spans into one large group (Paper 3's method).
+            Default "average" (since 0.2.0).
 
     Returns:
-        {span: {"group": id, "central": span}}. `central` is the group's medoid.
+        {span: {"group": id, "central": span}}: for each span, the number of its group (0, 1, 2, ...)
+        and the central span of that group.
 
     Raises:
-        ValueError: linkage is not one of LINKAGES.
+        ValueError: An unknown linkage.
+
+    Example:
+        >>> pairwise_grouping(["social support", "strong social support", "teacher support"])   # doctest: +SKIP
+        {'social support': {'group': 0, 'central': 'social support'}, 'strong social support': {'group': 0, 'central': 'social support'}, 'teacher support': {'group': 1, 'central': 'teacher support'}}
     """
     if linkage not in LINKAGES:
         raise ValueError(f"unknown linkage {linkage!r}; choose one of {LINKAGES}")

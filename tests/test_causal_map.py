@@ -234,3 +234,21 @@ def test_a_relation_with_an_empty_span_is_left_out():
     relations = RELATIONS + [relation("r20", "p9", "stress", "  ")]
     cmap = causal_map(relations, NAMES, min_sentences=1)
     assert all("r20" not in edge["rel_ids"] for edge in cmap["edges"] + cmap["hidden"])
+
+
+# --- the papers of the map (since 0.3.0) ----------------------------------------------------------
+
+def test_the_map_collects_the_papers_from_the_relations():
+    relations = [dict(RELATIONS[0], doi="10.1000/xyz", title="A title")] + RELATIONS[1:]
+    papers = causal_map(relations, NAMES)["papers"]
+    by_doc = {paper["doc_id"]: paper for paper in papers}
+    assert by_doc["p1"] == {"doc_id": "p1", "doi": "10.1000/xyz", "title": "A title"}
+    assert by_doc["p2"]["doi"] == ""
+    assert len(papers) == 5
+
+
+def test_draw_map_shows_the_dois_without_a_papers_argument(tmp_path):
+    relations = [dict(RELATIONS[0], doi="10.1000/xyz", title="A title")] + RELATIONS[1:]
+    draw_map(causal_map(relations, NAMES, min_sentences=1), save=str(tmp_path / "map.html"))
+    page = (tmp_path / "map.html").read_text(encoding="utf-8")
+    assert "10.1000/xyz" in page

@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/theoryminer)](https://pypi.org/project/theoryminer/)
 [![CI](https://github.com/rasoulnorouzi/theoryminer/actions/workflows/ci.yml/badge.svg)](https://github.com/rasoulnorouzi/theoryminer/actions/workflows/ci.yml)
+[![Documentation](https://img.shields.io/badge/docs-book-blue)](https://rasoulnorouzi.github.io/theoryminer/)
 [![Open the tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rasoulnorouzi/theoryminer/blob/main/tutorials/TUTORIAL.ipynb)
 
 Assemble theories from text. `theoryminer` reads a PDF, finds the sentences that make causal
@@ -81,8 +82,8 @@ from theoryminer import (harvest, extract_dois, extract_references, download_pap
                          label_groups, standardize_constructs, causal_map, draw_map, save_map)
 
 data = harvest("raw_data/my_book.pdf", pages="12-540")   # clean sentences + a drop log
-data = harvest("sample_files")                          # or every PDF in a folder
-dois = extract_dois("sample_files", save="outputs")     # the DOI and title of each paper -> outputs/dois.csv
+data = harvest("sample_files")                          # or every PDF in a folder; each sentence has its paper's DOI and title
+dois = extract_dois("sample_files", save="outputs")     # optional: the DOI and title of each paper -> outputs/dois.csv
 refs = extract_references("sample_files", save="outputs")   # the DOIs that the papers cite -> outputs/references.csv
 report = download_papers(refs, "round_2", licences=["cc-by"])  # their open-access PDFs: the next snowball round
 relations = causenet(data["sentences"])                 # one dict per cause → effect pair
@@ -92,21 +93,30 @@ names = label_groups(groups)                            # name each group from i
 matches = standardize_constructs(relations)             # or map each span to ELSST concepts
 
 cmap = causal_map(relations, names)                     # nodes, edges, and the hidden edges
-draw_map(cmap, papers=dois)                             # the interactive page (in a notebook, or causal_map.html)
+draw_map(cmap)                                          # the interactive page, with the DOI of each paper
 save_map(cmap, "outputs/my_map")                        # nodes.csv, edges.csv, hidden.csv, map.graphml
 ```
 
 `harvest()` takes one PDF or a folder of PDFs. In a folder, a file that is not a PDF, or a PDF
 that cannot be read, does not stop the run. The drop log gets one row for it, with the reason.
+Each sentence also gets the DOI and title of its paper. The DOI comes from the most certain source:
+the log `downloads.csv` that `download_papers()` writes into the folder, the file name of a downloaded
+PDF, the PDF metadata, then the first DOI on pages 1 and 2. `causenet()` copies the DOI and title to each
+relation, so `draw_map(cmap)` links each sentence to its paper without an extra step.
 
 `extract_references()` finds the DOIs in the references of seed papers, for a snowball search. It
 repairs the DOIs that a PDF cuts at a line end. On the sample papers, 214 of its 215 DOIs exist at
 doi.org. `download_papers()` downloads their open-access PDFs. It checks the licence of each paper
-with OpenAlex first (free, no key), so `licences=["cc-by"]` downloads only CC BY papers. Then it uses
-`tmsr-doi-downloader`, which `pip install theoryminer` installs on Python 3.11 or newer (on Python 3.10
-the function uses OpenAlex only). Its Unpaywall, CORE and Google Scholar sources take `email=`,
-`core_api_key=` and `serpapi_key=`, or the environment variables `UNPAYWALL_EMAIL`, `CORE_API_KEY` and
-`SERPAPI_KEY`. The tutorial, section 11, runs one snowball round.
+with OpenAlex first (free, no key), so `licences=["cc-by"]` downloads only CC BY papers. Then it tries
+free sources in turn until one gives a real PDF: OpenAlex, per-publisher plugins, PubMed Central,
+Europe PMC, Unpaywall, Semantic Scholar, Crossref, OSF preprints, and the doi.org page. The tutorial,
+section 11, runs one snowball round.
+
+`download_papers()` gets open-access copies only. It does not log in to a publisher site and it
+does not use a browser, so a paper that is only behind a paywall stays `not_found`. Get such a paper
+through your library, and put the PDF into the folder with the others. Set `respect_robots=False`
+only when you have the right to do so. `tmsr-doi-downloader` stays as an opt-in source:
+`sources=[..., "tmsr-doi-downloader"]`.
 
 ## The causal map
 
@@ -144,7 +154,10 @@ vectors again in the next session.
 
 ## Documentation
 
-All learning material is in `tutorials/`:
+The documentation is at **https://rasoulnorouzi.github.io/theoryminer/**: a guide for each
+step, the reference of each function, and every setting with its default.
+
+The learning material in the repository is in `tutorials/`:
 
 | file | what it is |
 |---|---|
@@ -170,7 +183,8 @@ package and tests the built wheel. The slow tests run on each push to `main` and
 
 A push to `main` never publishes. A release goes to PyPI in three steps:
 
-1. Set the new version in `pyproject.toml`, add a section to `CHANGELOG.md`, push, and wait for a green CI.
+1. Set the new version in `pyproject.toml` and in the first cell of `tutorials/TUTORIAL.ipynb`
+   (`%pip install -q "theoryminer==<version>"`). Add a section to `CHANGELOG.md`, push, and wait for a green CI.
 2. On GitHub: **Releases → Draft a new release**, tag `v` plus the version (for example `v0.1.0`),
    **Generate release notes**, **Publish release**.
 3. In the Actions tab, open the "Publish to PyPI" run and approve it (**Review deployments**).

@@ -155,7 +155,7 @@ def test_sidebar_text_gets_the_front_matter_flag(tmp_path):
 
 
 def test_licence_text_is_dropped_and_research_text_is_kept():
-    from theoryminer.harvest import drop_junk_sentences
+    from theoryminer.prepare.harvest import drop_junk_sentences
     licence = ["Open Access This article is licensed under a Creative Commons Attribution 4.0 International License.",
                "To view a copy of this licence, visit http://creativecommons.org/licenses/by/4.0/.",
                "Copyright: © 2024 Gordesli et al. This is an open access article.",
@@ -171,3 +171,30 @@ def test_licence_text_is_dropped_and_research_text_is_kept():
         assert row["drop_reason"] == "licence_text", row["text"]
     for row in rows[len(licence):]:
         assert row["kept"], row["text"]
+
+
+# --- the DOI and title on each sentence (since 0.3.0) ---------------------------------------------
+
+def test_each_sentence_has_the_doi_and_title_of_its_paper():
+    data = harvest(os.path.join(SAMPLE_DIR, "barrech_2018_job_insecurity_health.pdf"))
+    sentence = data["sentences"][0]
+    assert sentence["doi"] == "10.1186/s12889-018-5621-4"
+    assert sentence["title"].startswith("The impact of job insecurity")
+
+
+def test_find_dois_false_gives_empty_fields(tmp_path):
+    fake_pdf = os.path.join(tmp_path, "toy.pdf")
+    with open(fake_pdf + ".pages.json", "w") as fh:
+        json.dump({"1": "doi: 10.1186/s12889-018-5621-4\n\nAutonomy support increases intrinsic motivation in students.\n"}, fh)
+    assert harvest(fake_pdf)["sentences"][0]["doi"] == "10.1186/s12889-018-5621-4"
+    sentence = harvest(fake_pdf, find_dois=False)["sentences"][0]
+    assert (sentence["doi"], sentence["title"]) == ("", "")
+
+
+def test_a_page_selection_does_not_hide_the_doi_on_page_1(tmp_path):
+    fake_pdf = os.path.join(tmp_path, "toy.pdf")
+    pages = {"1": "doi: 10.1186/s12889-018-5621-4\n", "2": "Autonomy support increases intrinsic motivation in students.\n"}
+    with open(fake_pdf + ".pages.json", "w") as fh:
+        json.dump(pages, fh)
+    data = harvest(fake_pdf, pages="2")
+    assert data["sentences"][0]["doi"] == "10.1186/s12889-018-5621-4"

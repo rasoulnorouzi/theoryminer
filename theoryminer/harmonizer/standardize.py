@@ -81,25 +81,63 @@ def _score_summary(best, n_items, threshold):
 def standardize_constructs(items: list, taxonomy: str = "elsst", strategy: str = "enriched", top: int = 5,
                            embeddings: str = "allmpnet", leaves_only: bool = False, cache: bool = True,
                            threshold: float | None = None) -> dict:
-    """Map each span to its closest taxonomy concepts.
+    """Find the closest thesaurus concepts for each span.
+
+    The function turns each span (tidied and lowercased, no word removed) and each thesaurus
+    concept into a vector, and scores each pair with the cosine. It returns the `top` best
+    concepts of each span, one per concept, best first. The first call makes the thesaurus
+    vectors and saves them (see `cache`). The function loads the embedding model.
 
     Args:
-        items: relations from causenet(), or a plain list of span strings.
-        taxonomy: "elsst", or a path to a SKOS .rdf file.
-        strategy: what text stands for a concept:
-            leaf | path | anchor | context | bracket | enriched.
-        top: how many concepts to return per span.
-        embeddings: model shorthand ("allmpnet", "bge_base", "minilm") or a HF id.
-        leaves_only: False (the default since 0.2.0) matches against all concepts, broad ones
-            too ("TRUST", "MOTIVATION"). True matches against the leaf concepts only (the
-            most specific ones), as before 0.2.0.
-        cache: keep the taxonomy embeddings on disk.
-        threshold: None keeps every match. A cosine (for example 0.5) leaves out the
-            concepts that score lower. A span with no concept left gets an empty list.
+        items: The spans to work on.
+            Values: the relations from causenet() (the function reads "cause" and "effect"), or a
+            plain list of span strings. Each unique span is used once.
+            Default: none. Give the relations or the spans.
+        taxonomy: The thesaurus.
+            Values: "elsst", or the path of a SKOS .rdf or .rdf.gz file with the ELSST layout:
+            rdf:Description blocks of type skos:Concept, with an English skos:prefLabel.
+            Default "elsst": ELSST release 5 (3,436 concepts), which ships with the package.
+        strategy: The text that stands for each thesaurus concept.
+            Values: "leaf" (the concept name), "path" (the path from the top of the thesaurus),
+            "anchor" (the name, then the path), "context" ("<name> is related to <parents>"),
+            "bracket" (the name, with the parents in brackets), "enriched" (the name, the other
+            names, the definition and the path).
+            Default "enriched".
+        top: The number of concepts to return, best first.
+            Values: a whole number, 1 or more.
+            Default 5.
+        embeddings: The model that turns a text into a vector.
+            Values: "allmpnet", "bge_base", "minilm", or the name of another sentence-transformers
+            model on Hugging Face. A new model makes new thesaurus vectors the first time.
+            Default "allmpnet".
+        leaves_only: Which thesaurus concepts can be a match.
+            Values: True: only the most specific concepts (the leaves). False: all concepts, the
+            broad ones too, for example TRUST and MOTIVATION.
+            Default False: all concepts (the default since 0.2.0).
+        cache: Whether to keep the thesaurus vectors on disk.
+            Values: True or False.
+            Default True: read the vectors from ~/.cache/theoryminer/taxonomy (or from the folder in
+            THEORYMINER_CACHE_DIR), and make and save them on the first call (about 3 minutes on a
+            CPU). False makes them again in each session.
+        threshold: The lowest score that a concept needs to be a match. The score is a cosine.
+            Values: None, or a number from -1 to 1 (in practice 0.4 to 0.7).
+            Default None: keep the `top` concepts, however low their score.
 
     Returns:
-        {span: [{"id", "leaf", "path", "score"}, ...]}, best first. The list is empty
-        when no concept reaches the threshold.
+        {span: [match, ...]}: for each span, a list of up to `top` dicts, best first, with the keys
+            id     the web address of the concept
+            leaf   the name of the concept
+            path   the path from the top of the thesaurus to the concept
+            score  the cosine, rounded to 4 decimals
+        The list is empty when no concept reaches `threshold`.
+
+    Raises:
+        ValueError: An unknown taxonomy (not "elsst" and not a file), or an unknown strategy.
+
+    Example:
+        >>> matches = standardize_constructs(["loneliness", "social trust"], top=2)   # doctest: +SKIP
+        >>> [(m["leaf"], m["score"]) for m in matches["social trust"]]              # doctest: +SKIP
+        [('TRUST', 0.7604), ('INTERPERSONAL TRUST', 0.6876)]
     """
     spans = collect_spans(items)
     entries, tax_vectors = taxonomy_embeddings(taxonomy, strategy, embeddings, leaves_only, cache)
@@ -120,22 +158,69 @@ def standardize_constructs(items: list, taxonomy: str = "elsst", strategy: str =
 def standardize_groups(groups: dict, name_by: str = "mean_sim", taxonomy: str = "elsst",
                        strategy: str = "enriched", top: int = 5, embeddings: str = "allmpnet",
                        leaves_only: bool = False, cache: bool = True, threshold: float | None = None) -> dict:
-    """Give each group of spans its closest taxonomy concepts.
+    """Find the closest thesaurus concepts for each group of spans.
+
+    The function scores each group against each thesaurus concept, with the rule in `name_by`,
+    and returns the `top` best concepts of each group. A noise span (group -1) is a group of
+    its own. The first call makes the thesaurus vectors and saves them (see `cache`). The
+    function loads the embedding model.
 
     Args:
-        groups: output of pairwise_grouping() or clusterer():
-            {span: {"group": id, "central": span}}.
-        name_by: how a group is scored against the taxonomy:
-            "mean_sim"  average the members' similarity vectors (conservative:
-                        a mixed group scores low),
-            "centroid"  average the member vectors, then score,
-            "medoid"    score the central member only.
-        The other arguments are the same as in standardize_constructs(), threshold too.
+        groups: The groups to name.
+            Values: the result of pairwise_grouping() or clusterer(): {span: {"group": id,
+            "central": span}}.
+            Default: none. Give the groups.
+        name_by: How a group gets one score for each concept.
+            Values: "mean_sim": score each member, then take the mean. A mixed group scores low.
+            "centroid": take the mean vector of the members, then score it. It always ranks the
+            concepts as "mean_sim" does, with higher scores. "medoid": score the central span only.
+            Default "mean_sim".
+        taxonomy: The thesaurus.
+            Values: "elsst", or the path of a SKOS .rdf or .rdf.gz file with the ELSST layout:
+            rdf:Description blocks of type skos:Concept, with an English skos:prefLabel.
+            Default "elsst": ELSST release 5 (3,436 concepts), which ships with the package.
+        strategy: The text that stands for each thesaurus concept.
+            Values: "leaf" (the concept name), "path" (the path from the top of the thesaurus),
+            "anchor" (the name, then the path), "context" ("<name> is related to <parents>"),
+            "bracket" (the name, with the parents in brackets), "enriched" (the name, the other
+            names, the definition and the path).
+            Default "enriched".
+        top: The number of concepts to return, best first.
+            Values: a whole number, 1 or more.
+            Default 5.
+        embeddings: The model that turns a text into a vector.
+            Values: "allmpnet", "bge_base", "minilm", or the name of another sentence-transformers
+            model on Hugging Face. A new model makes new thesaurus vectors the first time.
+            Default "allmpnet".
+        leaves_only: Which thesaurus concepts can be a match.
+            Values: True: only the most specific concepts (the leaves). False: all concepts, the
+            broad ones too, for example TRUST and MOTIVATION.
+            Default False: all concepts (the default since 0.2.0).
+        cache: Whether to keep the thesaurus vectors on disk.
+            Values: True or False.
+            Default True: read the vectors from ~/.cache/theoryminer/taxonomy (or from the folder in
+            THEORYMINER_CACHE_DIR), and make and save them on the first call (about 3 minutes on a
+            CPU). False makes them again in each session.
+        threshold: The lowest score that a concept needs to be a match. The score is a cosine.
+            Values: None, or a number from -1 to 1 (in practice 0.4 to 0.7).
+            Default None: keep the `top` concepts, however low their score.
 
     Returns:
-        {group_id: {"central", "size", "members", "matches"}}.
-        Noise spans (group -1) each form a group of one, keyed by the span.
-        "matches" is empty when no concept reaches the threshold.
+        {key: group}: one dict per group. The key is the group id, or the span text for a noise
+        span. Each group has the keys
+            central  the central span of the group
+            size     the number of members
+            members  the spans of the group
+            matches  up to `top` concepts, best first, with the keys id, leaf, path and score;
+                     empty when no concept reaches `threshold`
+
+    Raises:
+        ValueError: An unknown name_by, an unknown taxonomy, or an unknown strategy.
+
+    Example:
+        >>> named = standardize_groups(clusterer(cards), top=1)               # doctest: +SKIP
+        >>> named[1]["size"], named[1]["matches"][0]["leaf"]                    # doctest: +SKIP
+        (5, 'LONELINESS')
     """
     if name_by not in NAME_RULES:
         raise ValueError(f"unknown name_by {name_by!r}; choose one of {NAME_RULES}")

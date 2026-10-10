@@ -139,7 +139,7 @@ def test_the_csv_has_a_title_column(tmp_path):
 # --- extract_references() -------------------------------------------------------
 
 from theoryminer import extract_references
-from theoryminer.dois import _text_dois
+from theoryminer.prepare.dois import _text_dois
 
 
 def test_a_doi_cut_after_a_space_is_joined():
@@ -207,3 +207,47 @@ def test_the_sample_seeds_give_their_repaired_reference_dois(tmp_path):
     shared = [row for row in rows if row["n_seeds"] == 2]
     assert shared[0]["doi"] == "10.1207/s15327965pli1104_01"
     assert (tmp_path / "references.csv").read_text().startswith("doi,n_seeds,cited_by")
+
+
+# --- the sources of the DOI (since 0.3.0): download log, file name, PDF metadata, text ---------
+
+from theoryminer.prepare.dois import _paper_doi
+from theoryminer.prepare.pdf import _read_pages
+
+DOWNLOADED = "10_1186_s12889-018-5621-4.pdf"     # the name that download_papers() gives this DOI
+
+
+def write_log(folder, rows):
+    """Write a download log, as download_papers() does, into the folder."""
+    with open(os.path.join(folder, "downloads.csv"), "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=["doi", "status", "source", "licence", "file", "note"])
+        writer.writeheader()
+        for doi, file in rows:
+            writer.writerow({"doi": doi, "status": "downloaded", "file": file})
+
+
+def test_the_download_log_comes_first(tmp_path):
+    path = fake_pdf(str(tmp_path), "paper.pdf", {"1": "A cited paper: doi:10.1016/j.cited.2020.1"})
+    write_log(str(tmp_path), [("10.1186/s12889-018-5621-4", os.path.join(str(tmp_path), "paper.pdf"))])
+    rows = extract_dois(path)
+    assert (rows[0]["doi"], rows[0]["source"]) == ("10.1186/s12889-018-5621-4", "download_log")
+
+
+def test_a_doi_that_gives_the_file_name_wins_over_the_first_doi(tmp_path):
+    page = "See doi:10.1016/j.cited.2020.1 and https://doi.org/10.1186/s12889-018-5621-4"
+    path = fake_pdf(str(tmp_path), DOWNLOADED, {"1": page})
+    doi, source, page_number = _paper_doi(path, _read_pages(path), 2, {})
+    assert (doi, source, page_number) == ("10.1186/s12889-018-5621-4", "file_name", 1)
+
+
+def test_without_log_name_or_metadata_the_first_doi_in_the_text_is_used(tmp_path):
+    path = fake_pdf(str(tmp_path), "paper.pdf", {"1": "Header", "2": "doi: 10.1186/s12889-018-5621-4"})
+    rows = extract_dois(path)
+    assert (rows[0]["doi"], rows[0]["source"], rows[0]["page"]) == ("10.1186/s12889-018-5621-4", "text", 2)
+
+
+def test_the_pdf_metadata_gives_the_doi_of_two_sample_papers():
+    rows = extract_dois(SAMPLE_DIR)
+    sources = {row["file"]: row["source"] for row in rows if row["status"] == "found"}
+    assert sources["barrech_2018_job_insecurity_health.pdf"] == "metadata"
+    assert sources["stephany_2017_income_inequality_trust.pdf"] == "metadata"

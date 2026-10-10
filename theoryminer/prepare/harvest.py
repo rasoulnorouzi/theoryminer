@@ -26,13 +26,15 @@ The only file that the function writes is the page cache,
 """
 
 import collections
-import json
 import os
 import re
 import unicodedata
 from collections.abc import Callable
 
 from nltk.tokenize.punkt import PunktParameters, PunktSentenceTokenizer
+
+from .dois import _folder_of, _log_dois, _paper_info
+from .pdf import _doc_id, _list_pdfs, _read_pages
 
 # ---------------------------------------------------------------------------
 # Fixed values. These come from the earlier notebook and stay predefined.
@@ -42,8 +44,12 @@ from nltk.tokenize.punkt import PunktParameters, PunktSentenceTokenizer
 QUOTES = {"‘": "'", "’": "'", "‚": "'", "‛": "'", "′": "'",
           "“": '"', "”": '"', "„": '"', "‟": '"', "″": '"'}
 DASHES = {d: "-" for d in "‐‑‒–—―−"}
-SPACES = {s: " " for s in "          　"}
-KILL = {c: "" for c in "­​‌‍﻿"}
+# The odd spaces, written as escape codes because they are invisible in an editor:
+# no-break space, the typographic spaces U+2000 to U+200A (not U+2005, U+2006), ideographic space.
+SPACES = {s: " " for s in "\u00a0\u2000\u2001\u2002\u2003\u2004\u2007\u2008\u2009\u200a\u3000"}
+# The invisible marks, removed: soft hyphen, zero-width space, zero-width non-joiner and joiner,
+# byte order mark.
+KILL = {c: "" for c in "\u00ad\u200b\u200c\u200d\ufeff"}
 TRANS = str.maketrans({**QUOTES, **DASHES, **SPACES, **KILL})
 
 # Markdown patterns: [text](url) links and *emphasis* markers.
@@ -340,6 +346,7 @@ def split_sentences(rows):
 def _strip_noise(text, is_noise):
     """Remove the (...) and [...] groups for which is_noise says True."""
     def keep_or_cut(match):
+        """Return "" for a noise group, else the group as it was."""
         if is_noise(match.group(1)):
             return ""
         return match.group(0)
@@ -454,15 +461,6 @@ DEFAULT_STEPS = list(STEPS.keys())
 # The public function.
 # ---------------------------------------------------------------------------
 
-def _doc_id(path):
-    """Return the file name without its folder and its extension.
-
-    Example:
-        >>> _doc_id("sample_files/smith_2021_trust.pdf")
-        'smith_2021_trust'
-    """
-    name = os.path.basename(path)
-    return os.path.splitext(name)[0]
 
 
 def _file_row(path, reason, message):
@@ -479,98 +477,10 @@ def _file_row(path, reason, message):
             "kept": False, "drop_reason": reason, "flag": ""}
 
 
-def _list_pdfs(folder):
-    """Find the PDF files and the other files in a folder.
-
-    The function looks in the folder only, not in its subfolders.
-    It ignores hidden files and the page caches (*.pages.json).
-    A name that ends with ".pdf" or ".PDF" is a PDF.
-
-    Args:
-        folder: Path of the folder.
-
-    Returns:
-        Two sorted lists of paths: the PDF files and the other files.
-
-    Example:
-        >>> pdfs, others = _list_pdfs("sample_files")
-        >>> others
-        ['sample_files/SOURCES.md']
-    """
-    pdf_paths = []
-    other_paths = []
-    for name in sorted(os.listdir(folder)):
-        path = os.path.join(folder, name)
-        if name.startswith(".") or name.endswith(".pages.json") or not os.path.isfile(path):
-            continue
-        if name.lower().endswith(".pdf"):
-            pdf_paths.append(path)
-        else:
-            other_paths.append(path)
-    return pdf_paths, other_paths
 
 
-def _load_cache(cache_path):
-    """Read a page cache. Return None when the file is not valid JSON.
-
-    A broken cache can stay behind when a run stops during the write.
-    The caller then extracts the pages again.
-    """
-    try:
-        with open(cache_path, encoding="utf-8") as fh:
-            page_md = json.load(fh)
-    except ValueError:
-        return None
-    pages = {}
-    for page, markdown in page_md.items():
-        pages[int(page)] = markdown
-    return pages
 
 
-def _read_pages(pdf_path, cache=True):
-    """Return the markdown text of each page of a PDF.
-
-    The first run extracts the pages with pdf_inspector. With cache=True,
-    it saves them to <pdf>.pages.json. The next run reads that file.
-
-    Args:
-        pdf_path: Path of the PDF file.
-        cache: Read and write the page cache beside the PDF.
-
-    Returns:
-        A dict {page number: markdown}. Page numbers start at 1, as in a PDF viewer.
-
-    Raises:
-        ValueError: The file is not a PDF, the PDF is broken, or no page has text.
-
-    Example:
-        >>> pages = _read_pages("README.md")
-        Traceback (most recent call last):
-        ValueError: Not a PDF: file appears to be plain text
-    """
-    cache_path = pdf_path + ".pages.json"
-
-    # 1. Use the cache when it exists and is valid.
-    page_md = None
-    if cache and os.path.exists(cache_path):
-        page_md = _load_cache(cache_path)
-
-    # 2. Otherwise extract the pages. pdf_inspector raises ValueError for a bad file.
-    if page_md is None:
-        import pdf_inspector
-        result = pdf_inspector.extract_pages_markdown(pdf_path)
-        page_md = {}
-        for page in result.pages:
-            page_md[page.page + 1] = page.markdown   # the library counts pages from 0
-        if cache:
-            with open(cache_path, "w", encoding="utf-8") as fh:
-                json.dump(page_md, fh)
-
-    # 3. A scanned PDF has pages but no text. OCR is not part of this package.
-    all_text = "".join(page_md.values())
-    if not all_text.strip():
-        raise ValueError("no text layer; the PDF may be a scan, and OCR is not supported")
-    return page_md
 
 
 def _select_pages(page_md, pages=None, skip_pages=None):
@@ -644,6 +554,31 @@ def _run_steps(rows, steps, min_words, max_words):
     return rows
 
 
+def _check_settings(pages, skip_pages, steps, min_words, max_words):
+    """Raise a ValueError for a setting of harvest() that cannot work, before any PDF is read.
+
+    Example:
+        >>> _check_settings(None, None, ["fix_unicode", "split_sentence"], 4, 80)
+        Traceback (most recent call last):
+        ...
+        ValueError: unknown step 'split_sentence'; choose from ['fix_unicode', 'strip_markdown', 'drop_running_heads', 'drop_junk_lines', 'join_paragraphs', 'split_sentences', 'strip_citations', 'strip_stats', 'drop_junk_sentences', 'filter_length'], or give your own function
+    """
+    for name, spec in [("pages", pages), ("skip_pages", skip_pages)]:
+        if spec is None:
+            continue
+        try:
+            _page_list(spec)
+        except (ValueError, TypeError):
+            raise ValueError(f"{name}={spec!r} is not a page selection; give a page (12), a text "
+                             f"(\"12-540\" or \"3,7,9-12\") or a list of pages ([3, 5, 9])") from None
+    for step in steps:
+        if isinstance(step, str) and step not in STEPS:
+            raise ValueError(f"unknown step {step!r}; choose from {list(STEPS)}, or give your own function")
+    if min_words < 1 or max_words < min_words:
+        raise ValueError(f"min_words must be 1 or more, and max_words at least min_words; "
+                         f"got min_words={min_words}, max_words={max_words}")
+
+
 def _harvest_one(pdf_path, doc_number, settings):
     """Read and clean one PDF. Return all its rows, kept and dropped.
 
@@ -655,11 +590,12 @@ def _harvest_one(pdf_path, doc_number, settings):
     Args:
         pdf_path: Path of the PDF file.
         doc_number: The position of the PDF in the run, from 0.
-        settings: A dict with the harvest() arguments pages, skip_pages,
-            steps, min_words, max_words and cache.
+        settings: A dict with the harvest() arguments pages, skip_pages, steps, min_words,
+            max_words, cache and find_dois, and log_dois ({file name: DOI} of the folder).
 
     Returns:
-        A list of row dicts. The rows with a "sent_id" are sentences.
+        A list of row dicts. The rows with a "sent_id" are sentences. A sentence row also
+        has "doi" and "title" ("" when find_dois is False or nothing was found).
 
     Raises:
         ValueError: _read_pages() cannot read the PDF.
@@ -670,10 +606,18 @@ def _harvest_one(pdf_path, doc_number, settings):
     rows = _page_rows(doc_id, page_md, selected)
     rows = _run_steps(rows, settings["steps"], settings["min_words"], settings["max_words"])
 
+    # The DOI and title come from all pages, also the pages that `pages` leaves out:
+    # the DOI is on page 1, which a page selection often skips.
+    paper = {"doi": "", "title": ""}
+    if settings["find_dois"]:
+        paper = _paper_info(pdf_path, page_md, settings["log_dois"])
+
     prefix = f"d{doc_number:03d}"
     for row in rows:
         if "sent_id" in row:
             row["sent_id"] = prefix + row["sent_id"]
+            row["doi"] = paper["doi"]
+            row["title"] = paper["title"]
     return rows
 
 
@@ -736,13 +680,21 @@ def _print_summary(source, kept, dropped):
     for row in skipped:
         print(f"    skipped: {row['text']} ({row['drop_reason']})")
 
-    # 2. The text of the files that were read.
+    # 2. The papers with a DOI. A row of a paper without sentences has no "doi" key.
+    papers_with_doi = set()
+    for row in kept:
+        if row.get("doi"):
+            papers_with_doi.add(row["doc_id"])
+    if papers_with_doi:
+        print(f"  DOI found: {len(papers_with_doi)} of {len(read_docs)} papers")
+
+    # 3. The text of the files that were read.
     print(f"  text: {len(kept):,} sentences kept | {len(text_dropped):,} rows dropped")
     reasons = collections.Counter(r["drop_reason"] for r in text_dropped)
     for reason, n in reasons.most_common():
         print(f"  {n:>8,}  {reason}")
 
-    # 3. The sentences of each file, when there is more than one file.
+    # 4. The sentences of each file, when there is more than one file.
     if len(read_docs) > 1:
         doc_counts = collections.Counter(r["doc_id"] for r in kept)
         print("  sentences per file:")
@@ -753,49 +705,87 @@ def _print_summary(source, kept, dropped):
 def harvest(source: str, pages: str | int | list[int] | None = None,
             skip_pages: str | int | list[int] | None = None,
             steps: list[str | Callable] | None = None,
-            min_words: int = 4, max_words: int = 80, cache: bool = True) -> dict:
-    """Read one PDF, or every PDF in a folder, and return clean sentences with a drop log.
+            min_words: int = 4, max_words: int = 80, cache: bool = True, find_dois: bool = True) -> dict:
+    """Read one PDF, or every PDF in a folder, and return the clean sentences and a drop log.
 
-    For one PDF, a bad file raises a ValueError. For a folder, a bad file
-    does not stop the run. The drop log gets one row for the file, with
-    page 0 and the reason "not_pdf" or "unreadable_pdf".
-    The function looks in the folder only, not in its subfolders.
+    The function reads the text of each page, runs the cleaning steps in order, and splits
+    the text into sentences. A step never deletes a row: it marks the row as dropped and
+    gives the reason. A doubtful sentence keeps its row and gets a flag.
+    For one PDF, a bad file raises a ValueError. For a folder, a bad file does not stop the
+    run: the drop log gets one row for the file, with page 0 and the reason "not_pdf" or
+    "unreadable_pdf". The function looks in the folder only, not in its subfolders.
+    It writes one file per PDF, the page cache (see `cache`).
 
     Args:
-        source: Path of a PDF file, or of a folder with PDF files.
-        pages: Pages to keep. Give "12-540", [3, 5, 9], or None for all pages.
-            Page numbers are 1-indexed, as in a PDF viewer.
-            For a folder, the same pages apply to every PDF.
-        skip_pages: Pages to drop, in the same forms. Applied after `pages`.
-        steps: The preprocessing steps, in order. None uses DEFAULT_STEPS.
-            Give step names from STEPS, or your own function. A custom
-            function takes a list of row dicts and returns a list of row dicts.
-        min_words: Drop sentences with fewer words.
-        max_words: Drop sentences with more words.
-        cache: Keep the extracted page markdown on disk, in <pdf>.pages.json
-            beside each PDF. The next run then skips the slow extraction.
-            This file is the only file that the function writes.
+        source: The PDF file, or the folder of PDF files, to read.
+            Values: the path of one PDF file, or the path of a folder.
+            Default: none. Give a path.
+        pages: The pages to read. Page 1 is the first page, as in a PDF viewer.
+            Values: one page (12), a text ("12-540" or "3,7,9-12"), a list of pages ([3, 5, 9]),
+            or None. For a folder, the same pages apply to every PDF.
+            Default None: read every page.
+        skip_pages: The pages to leave out, after `pages` has selected its pages.
+            Values: the same forms as `pages`.
+            Default None: leave out no page.
+        steps: The cleaning steps, in the order in which they run.
+            Values: a list of step names from STEPS, of your own functions, or of both. A function
+            of your own takes a list of row dicts and returns a list of row dicts.
+            To switch off one step, give DEFAULT_STEPS without that name.
+            Default None: run DEFAULT_STEPS, the 10 steps in this order: fix_unicode,
+            strip_markdown, drop_running_heads, drop_junk_lines, join_paragraphs,
+            split_sentences, strip_citations, strip_stats, drop_junk_sentences, filter_length.
+        min_words: The fewest words that a sentence can have (the step filter_length).
+            Values: a whole number, 1 or more.
+            Default 4: a sentence with 3 words or fewer is dropped as "too_short".
+        max_words: The most words that a sentence can have (the step filter_length).
+            Values: a whole number, min_words or more.
+            Default 80: a sentence with 81 words or more is dropped as "too_long".
+        cache: Whether to keep the text of the pages on disk.
+            Values: True or False.
+            Default True: write <pdf>.pages.json beside each PDF, and read it on the next run.
+            The next run then skips the slow text extraction. False reads every PDF again
+            and writes no file.
+        find_dois: Whether to find the DOI and the title of each paper, for each sentence.
+            Values: True or False.
+            Default True: find them, as extract_dois() does. The DOI comes from the most
+            certain source: the download log (downloads.csv in the folder), the file name of a
+            download_papers() PDF, the PDF metadata, then the first DOI on pages 1 and 2.
+            causenet() copies them to each relation, and draw_map() shows them. False skips
+            this work and gives "" for both.
 
     Returns:
         A dict with two lists:
-        - "sentences": kept rows with doc_id, page, sent_id, section,
-          raw, clean, flag.
-        - "dropped": dropped rows with doc_id, page, section,
-          drop_reason, text.
+        - "sentences": one dict per kept sentence, with the keys
+            doc_id    the file name without ".pdf"
+            page      the page number
+            sent_id   for example "d000p0012s003": document 0, paragraph 12, sentence 3
+            section   the last heading before the sentence
+            raw       the sentence as the splitter gave it, before the later steps
+            clean     the sentence that causenet() reads
+            flag      "" for no flag, else "front_matter", "fragment" or "long"
+            doi       the DOI of the paper, in lowercase, or ""
+            title     the title of the paper, or ""
+        - "dropped": one dict per dropped row, with the keys doc_id, page, section,
+          drop_reason and text.
 
     Raises:
-        ValueError: The source does not exist, the folder has no PDF,
-            or the one PDF cannot be read.
+        ValueError: The source does not exist, the folder has no PDF, or the one PDF cannot
+            be read. Also for a wrong setting: a page selection that is not a page, an unknown
+            step name, min_words below 1, or max_words below min_words.
 
     Example:
-        >>> data = harvest("sample_files")          # doctest: +SKIP
-        >>> data["sentences"][0]["sent_id"]          # doctest: +SKIP
-        'd000p0000s000'
+        >>> data = harvest("sample_files")                                # doctest: +SKIP
+        >>> len(data["sentences"]), data["sentences"][0]["sent_id"]       # doctest: +SKIP
+        (2531, 'd000p0000s000')
     """
     if steps is None:
         steps = DEFAULT_STEPS
+    _check_settings(pages, skip_pages, steps, min_words, max_words)
     settings = {"pages": pages, "skip_pages": skip_pages, "steps": steps,
-                "min_words": min_words, "max_words": max_words, "cache": cache}
+                "min_words": min_words, "max_words": max_words, "cache": cache,
+                "find_dois": find_dois, "log_dois": {}}
+    if find_dois:
+        settings["log_dois"] = _log_dois(_folder_of(source))
 
     # 1. Read the PDF, or each PDF in the folder.
     # A page cache can stand in for its PDF, so a test can use made-up pages.
@@ -815,7 +805,7 @@ def harvest(source: str, pages: str | int | list[int] | None = None,
     # 3. Return the data. The caller writes files when it wants them.
     sentences = [{"doc_id": r["doc_id"], "page": r["page"], "sent_id": r["sent_id"],
                   "section": r["section"], "raw": r["raw"], "clean": r["text"],
-                  "flag": r["flag"]} for r in kept]
+                  "flag": r["flag"], "doi": r["doi"], "title": r["title"]} for r in kept]
     drop_log = [{"doc_id": r["doc_id"], "page": r["page"], "section": r["section"],
                  "drop_reason": r["drop_reason"], "text": r["text"]} for r in dropped]
     return {"sentences": sentences, "dropped": drop_log}

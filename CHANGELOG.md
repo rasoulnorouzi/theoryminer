@@ -3,6 +3,82 @@
 Each release of `theoryminer` has one section. The newest release is first.
 The version numbers follow semantic versioning: before 1.0.0, a minor release (0.x.0) can change the API.
 
+## 0.3.0
+
+This release rewrites `download_papers()` and restructures the first stages into folders.
+
+### Added
+
+- A documentation website: https://rasoulnorouzi.github.io/theoryminer/. It has a guide for each
+  step, a reference page for each public function, and every setting with its default. The book is
+  made with mdBook from `docs/`. The reference pages come from the docstrings (`docs/make_api.py`),
+  so they always match the code. A push to `main` publishes the book with GitHub Pages.
+- `download_papers()` is rewritten. It tries many free sources in turn until one gives a real PDF:
+  OpenAlex, per-publisher plugins, PubMed Central, Europe PMC, Unpaywall, Semantic Scholar, Crossref,
+  OSF preprints, and the doi.org landing page. On a 100-DOI benchmark it downloads the correct PDF for
+  33 papers; the old version (OpenAlex, then `tmsr-doi-downloader`) downloaded 25. It is also faster.
+  The new `sources` setting chooses the sources and their order.
+- Per-publisher plugins, in the style of Zotero translators (`theoryminer/download/publishers.py`).
+  A plugin turns a DOI into the direct PDF link of its publisher (Springer with BMC and Palgrave,
+  and Frontiers). To add a journal, add one plugin.
+- `download_papers()` gets open-access copies only. It does not log in to a publisher site and it
+  does not use a browser. A paper that is only behind a paywall stays `not_found`.
+- `respect_robots` (default `True`). Set it `False` only when you have the right to download from the
+  sites, for example by an agreement of your institution.
+- The DOI and title of each paper travel with the data. `harvest()` puts `doi` and `title` on every
+  sentence (new setting `find_dois`, default `True`). `causenet()` copies them to every relation.
+  `causal_map()` collects them in `cmap["papers"]`, and `draw_map(cmap)` shows them. The call
+  `draw_map(cmap, papers=extract_dois(folder))` is no longer needed; `papers=` still works.
+- A better DOI rule, shared by `harvest()` and `extract_dois()`. The DOI comes from the most certain
+  source: the download log `downloads.csv` of the folder, a DOI in the text that gives the file name
+  of a `download_papers()` PDF, the subject or keywords field of the PDF metadata, then the first DOI
+  on pages 1-2. `extract_dois()` rows have a new column `source`. On 21 papers with a known DOI
+  (7 sample papers and 14 downloads) the rule finds 20; the old rule found 18.
+- `download_papers()` always writes its log `downloads.csv` into the PDF folder. The log keeps
+  the rows of earlier runs. `harvest()` reads it, so it knows the DOI of every downloaded PDF.
+
+### Changed
+
+- The modules of the first stages are in two new folders. The public functions do not change:
+  `from theoryminer import harvest, extract_dois, extract_references, download_papers` works as before.
+
+  | Before | Since this release |
+  |---|---|
+  | `theoryminer/harvest.py` | `theoryminer/prepare/harvest.py` |
+  | `theoryminer/dois.py` | `theoryminer/prepare/dois.py` |
+  | `theoryminer/download.py` | `theoryminer/download/papers.py` |
+
+- `download_papers()` no longer uses `tmsr-doi-downloader` in the default. On the benchmark it added
+  one paper per hundred and doubled the run time. `tmsr-doi-downloader` stays a dependency and an
+  opt-in source: `sources=[..., "tmsr-doi-downloader"]`.
+
+- The docstrings of the public functions give, for each argument, every permitted value
+  and what the default does in words. For example, `harvest(steps=None)` names the 10 steps
+  of `DEFAULT_STEPS`. Five functions got an example: `causenet()`, `standardize_constructs()`,
+  `standardize_groups()`, `pairwise_grouping()` and `clusterer()`. A new test,
+  `tests/test_docstrings.py`, checks every argument and every choice value.
+- `causenet()` checks its settings before the model loads. An unknown `mode` or `decision`,
+  a `threshold` outside 0 to 1, or a `batch_size` below 1 raises a `ValueError`.
+  `mode` accepts `"neural"` and `"auto"`. Before, `mode="heuristic"` (or a typing error)
+  ran the neural path without a message, and an unknown `decision` ran `"cls+span"`.
+- `harvest()` checks its settings before it reads a PDF. A page selection that is not a page,
+  an unknown step name, `min_words` below 1, or `max_words` below `min_words` raises a
+  `ValueError` with the permitted values. Before, an unknown step gave a `KeyError`.
+
+### Fixed
+
+- `clusterer()` no longer prints a `FutureWarning` from scikit-learn 1.9 about the `copy` setting of
+  HDBSCAN. The clusters do not change.
+- `tutorials/PACKAGE_LINE_BY_LINE.ipynb` runs again without an error. Four cells used the APA
+  thesaurus (removed) or the defaults before 0.2.0 (`leaves_only=True`, `linkage="single"`).
+
+### Deprecated
+
+- The module paths `theoryminer.harvest` and `theoryminer.dois` still work, as aliases of the new modules.
+  They go away in 0.4.0. Use `theoryminer.prepare.harvest` and `theoryminer.prepare.dois`.
+- `theoryminer.download` is now a folder. `from theoryminer.download import download_papers` still works.
+  Its private helpers (names that start with `_`) are in `theoryminer.download.papers`.
+
 ## 0.2.2
 
 ### Added

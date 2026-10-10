@@ -33,7 +33,7 @@ from urllib.parse import unquote
 
 import pdf_inspector
 
-from .harvest import _doc_id, _list_pdfs, _read_pages
+from .pdf import _doc_id, _list_pdfs, _read_pages, _safe_name
 
 # The characters of a DOI, as Crossref recommends: "10.", a registrant code, "/", a suffix.
 # An old Wiley DOI (SICI) also holds one "<number::code>" part. Only that form may hold "<" and ">",
@@ -87,7 +87,10 @@ RE_YEAR = re.compile(r"^(?:19|20)\d\d[a-z]?$")
 FIRST_PAGES = 2       # the DOI of the paper itself is on page 1; page 2 covers a cover page
 MIN_TITLE_WORDS = 4   # a title has at least this many words; a shorter large text is a banner
 CSV_NAME = "dois.csv"  # the file name when save= gives a folder
-COLUMNS = ["doc_id", "file", "doi", "title", "page", "status", "note"]
+COLUMNS = ["doc_id", "file", "doi", "source", "title", "page", "status", "note"]
+LOG_NAME = "downloads.csv"   # the report of download_papers(save=<folder>): the DOI of each downloaded file
+# Where the DOI of a paper comes from, the most certain source first. See _paper_doi().
+DOI_SOURCES = ["download_log", "file_name", "metadata", "text"]
 REFERENCES_CSV_NAME = "references.csv"      # the file name of extract_references() when save= gives a folder
 REFERENCE_COLUMNS = ["doi", "n_seeds", "cited_by"]
 
@@ -136,15 +139,15 @@ def _first_doi(page_md, first_pages=FIRST_PAGES):
     return "", 0
 
 
-def _doi_row(path, doi="", page=0, status="found", note="", title=""):
+def _doi_row(path, doi="", source="", page=0, status="found", note="", title=""):
     """Return one result row for one file.
 
     Example:
         >>> _doi_row("papers/notes.txt", status="not_pdf", note="the file name does not end with .pdf")
-        {'doc_id': 'notes', 'file': 'notes.txt', 'doi': '', 'title': '', 'page': 0, 'status': 'not_pdf', 'note': 'the file name does not end with .pdf'}
+        {'doc_id': 'notes', 'file': 'notes.txt', 'doi': '', 'source': '', 'title': '', 'page': 0, 'status': 'not_pdf', 'note': 'the file name does not end with .pdf'}
     """
-    return {"doc_id": _doc_id(path), "file": os.path.basename(path), "doi": doi, "title": title,
-            "page": page, "status": status, "note": note}
+    return {"doc_id": _doc_id(path), "file": os.path.basename(path), "doi": doi, "source": source,
+            "title": title, "page": page, "status": status, "note": note}
 
 
 def _clean_title(text):
@@ -204,17 +207,126 @@ def _title_of_pdf(pdf_path):
     return title
 
 
-def _doi_of_pdf(pdf_path, first_pages, cache):
-    """Find the DOI of one PDF. Return its row. A PDF that cannot be read gives a row, not an error."""
+def _log_dois(folder):
+    """Return {file name: DOI} from the download log of a folder, or {} when the folder has no log.
+
+    download_papers(save=<folder>) writes the log downloads.csv. Its "file" column holds the path of
+    each PDF, and its "doi" column the DOI that was asked for. So the log is the most certain source.
+
+    Example:
+        >>> _log_dois("no_such_folder")
+        {}
+    """
+    path = os.path.join(folder, LOG_NAME)
+    if not os.path.isfile(path):
+        return {}
+    dois = {}
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            if row.get("file") and row.get("doi"):
+                dois[os.path.basename(row["file"])] = row["doi"].strip().lower()
+    return dois
+
+
+def _metadata_doi(pdf_path):
+    """Return the first DOI in the subject or keywords field of the PDF metadata, or "".
+
+    Some publishers (BMC, Springer) write "Journal, 2018, doi:10.1186/..." into the subject field.
+    A page cache without its PDF, or a PDF that cannot be read, gives "".
+    """
+    if not os.path.isfile(pdf_path):
+        return ""
+    try:
+        result = pdf_inspector.process_pdf(pdf_path)
+    except ValueError:
+        return ""
+    fields = (result.subject or "") + " " + (result.keywords or "")
+    match = RE_DOI.search(fields)
+    if not match:
+        return ""
+    return _clean_doi(match.group(0))
+
+
+def _doi_page(page_md, doi, first_pages):
+    """Return the first page, up to first_pages, whose text holds the DOI, or 0.
+
+    Example:
+        >>> _doi_page({1: "Title", 2: "https://doi.org/10.1186/S12889-018-5621-4"}, "10.1186/s12889-018-5621-4", 2)
+        2
+    """
+    for page in range(1, first_pages + 1):
+        if doi in page_md.get(page, "").lower():
+            return page
+    return 0
+
+
+def _paper_doi(pdf_path, page_md, first_pages, log_dois):
+    """Return (doi, source, page) of one paper, from the most certain source that has a DOI.
+
+    The sources, in this order (DOI_SOURCES):
+        1. download_log  the download log of the folder gives the DOI of this file
+        2. file_name     a DOI on the first pages turns into the file name (download_papers() names
+                         each PDF after its DOI), so the DOI is certain
+        3. metadata      the subject or keywords field of the PDF
+        4. text          the first DOI on pages 1 to first_pages
+    page is the first page that shows the DOI, or 0. ("", "", 0) when no source has a DOI.
+    """
+    doc_id = _doc_id(pdf_path)
+    first_text = "\n".join(page_md.get(page, "") for page in range(1, first_pages + 1))
+
+    # 1. The download log, and 2. a DOI on the first pages that gives the file name.
+    doi = log_dois.get(os.path.basename(pdf_path), "")
+    source = "download_log"
+    if not doi:
+        source = "file_name"
+        for candidate in _text_dois(first_text):
+            if _safe_name(candidate) == doc_id.lower():
+                doi = candidate
+                break
+
+    # 3. The PDF metadata, and 4. the first DOI in the text.
+    if not doi:
+        doi = _metadata_doi(pdf_path)
+        source = "metadata"
+    if not doi:
+        doi, _ = _first_doi(page_md, first_pages)
+        source = "text"
+    if not doi:
+        return "", "", 0
+    return doi, source, _doi_page(page_md, doi, first_pages)
+
+
+def _paper_info(pdf_path: str, page_md: dict, log_dois: dict, first_pages: int = FIRST_PAGES) -> dict:
+    """Return the DOI and the title of one paper, for harvest() and extract_dois().
+
+    The DOI comes from the most certain source that has one (see _paper_doi()). The title is the
+    largest font on page 1, else the title field of the PDF metadata.
+
+    Args:
+        pdf_path: The path of the PDF. A page cache without its PDF also works; then the metadata
+            and the title are not available.
+        page_md: The text of the pages, {page number: markdown}, as _read_pages() gives it.
+        log_dois: {file name: DOI} from _log_dois() of the folder of the PDF; {} when there is no log.
+        first_pages: The last page on which to look for a DOI in the text (default 2).
+
+    Returns:
+        {"doi", "source", "page", "title"}. doi is lowercase or ""; source is one of DOI_SOURCES or "".
+    """
+    doi, source, page = _paper_doi(pdf_path, page_md, first_pages, log_dois)
+    return {"doi": doi, "source": source, "page": page, "title": _title_of_pdf(pdf_path)}
+
+
+def _doi_of_pdf(pdf_path, first_pages, cache, log_dois):
+    """Find the DOI and title of one PDF. Return its row. A PDF that cannot be read gives a row, not an error."""
     try:
         page_md = _read_pages(pdf_path, cache)
     except ValueError as error:
         return _doi_row(pdf_path, status="unreadable_pdf", note=str(error))
-    doi, page = _first_doi(page_md, first_pages)
-    title = _title_of_pdf(pdf_path)
-    if not doi:
-        return _doi_row(pdf_path, status="not_found", note=f"no DOI on pages 1-{first_pages}", title=title)
-    return _doi_row(pdf_path, doi=doi, page=page, title=title)
+    info = _paper_info(pdf_path, page_md, log_dois, first_pages)
+    if not info["doi"]:
+        note = f"no DOI in the download log, the file name, the PDF metadata or on pages 1-{first_pages}"
+        return _doi_row(pdf_path, status="not_found", note=note, title=info["title"])
+    return _doi_row(pdf_path, doi=info["doi"], source=info["source"], page=info["page"], title=info["title"])
 
 
 def _save_csv(rows, save, name=CSV_NAME, columns=COLUMNS):
@@ -257,38 +369,63 @@ def _source_pdfs(source):
     raise ValueError(f"no file or folder at {source!r}; give a PDF file or a folder of PDF files")
 
 
+def _folder_of(source):
+    """Return the folder of a source: the source itself when it is a folder, else the folder of the file.
+
+    Example:
+        >>> _folder_of("sample_files"), _folder_of("sample_files/a.pdf"), _folder_of("a.pdf")
+        ('sample_files', 'sample_files', '')
+    """
+    if os.path.isdir(source):
+        return source
+    return os.path.dirname(source)
+
+
 def extract_dois(source: str, save: str | None = None, first_pages: int = FIRST_PAGES,
                  cache: bool = True) -> list[dict]:
     """Find the DOI and the title of each paper in one PDF, or in every PDF in a folder.
 
-    The DOI rule: the first DOI on page 1, else the first DOI on page 2. The title
-    rule: the largest font on page 1 with at least MIN_TITLE_WORDS words, else the
-    title in the PDF metadata. A bad file
-    does not stop the run. It gets a row with the status "not_pdf" or
-    "unreadable_pdf". A PDF without a DOI on its first pages gets "not_found".
+    The DOI rule: the first DOI on page 1, else the first DOI on the next pages, up to
+    `first_pages`. The title rule: the largest font on page 1 with at least MIN_TITLE_WORDS
+    words, else the title in the PDF metadata. A bad file does not stop the run: it gets a
+    row with the status "not_pdf" or "unreadable_pdf". The function reads the same page
+    cache as harvest(). It writes a CSV file only when you give `save`.
 
     Args:
-        source: Path of a PDF file, or of a folder with PDF files. The function
-            looks in the folder only, not in its subfolders.
-        save: None writes no file. A path that ends with ".csv" writes that file.
-            A folder writes <folder>/dois.csv. A missing folder is made.
-        first_pages: Search pages 1 to this number. A larger value can find a DOI
-            that is not on the first page, and also a DOI from the reference list.
-        cache: Read and write the page cache <pdf>.pages.json beside each PDF,
-            as harvest() does.
+        source: The PDF file, or the folder of PDF files, to read.
+            Values: the path of one PDF file, or the path of a folder. The function looks in
+            the folder only, not in its subfolders.
+            Default: none. Give a path.
+        save: Where to write the rows as a CSV file.
+            Values: None, a path that ends with ".csv", or a folder (then <folder>/dois.csv).
+            A missing folder is made.
+            Default None: write no file.
+        first_pages: The last page on which to look for the DOI.
+            Values: a whole number, 1 or more. A larger value can find a DOI that is not on the
+            first pages, but also the DOI of a cited paper in the reference list.
+            Default 2: look on page 1, then on page 2 (page 1 is sometimes a cover page).
+        cache: Whether to use the page cache <pdf>.pages.json beside each PDF.
+            Values: True or False.
+            Default True: read the cache when it exists, else read the PDF and write the cache.
+            False reads every PDF again and writes no cache.
 
     Returns:
         A list of dicts, one per file, in file-name order, with the keys
-        doc_id, file, doi, title, page, status, note. doi is lowercase, or "" when
-        none was found. title is "" when no title was found.
+            doc_id   the file name without ".pdf", as in harvest()
+            file     the path of the file
+            doi      the DOI in lowercase, or "" when none was found
+            title    the title, or "" when none was found
+            page     the page of the DOI, or 0 when none was found
+            status   "found", "not_found", "not_pdf" or "unreadable_pdf"
+            note     why a file has no DOI, else ""
 
     Raises:
         ValueError: The source does not exist, or the folder has no PDF.
 
     Example:
-        >>> rows = extract_dois("sample_files/barrech_2018_job_insecurity_health.pdf")   # doctest: +SKIP
-        >>> rows[0]["doi"]                                                             # doctest: +SKIP
-        '10.1186/s12889-018-5621-4'
+        >>> rows = extract_dois("sample_files/alrabai_2021_autonomy_supportive_teaching.pdf")   # doctest: +SKIP
+        >>> rows[0]["doi"], rows[0]["status"]                                                  # doctest: +SKIP
+        ('10.3389/fpsyg.2021.728657', 'found')
     """
     # 1. Find the files. A page cache can stand in for its PDF, as in harvest().
     pdf_paths, other_paths = _source_pdfs(source)
@@ -297,9 +434,10 @@ def extract_dois(source: str, save: str | None = None, first_pages: int = FIRST_
     rows = []
     for path in other_paths:
         rows.append(_doi_row(path, status="not_pdf", note="the file name does not end with .pdf"))
+    log_dois = _log_dois(_folder_of(source))
     for i, path in enumerate(pdf_paths):
         print(f"\r  reading .pdf file {i + 1} of {len(pdf_paths)}", end="")
-        rows.append(_doi_of_pdf(path, first_pages, cache))
+        rows.append(_doi_of_pdf(path, first_pages, cache, log_dois))
     print()
     rows.sort(key=_file_name)
 
@@ -409,7 +547,7 @@ def _reference_dois(pdf_path, cache):
         ValueError: The PDF cannot be read.
     """
     page_md = _read_pages(pdf_path, cache)
-    own, _ = _first_doi(page_md)
+    own, _, _ = _paper_doi(pdf_path, page_md, FIRST_PAGES, _log_dois(os.path.dirname(pdf_path)))
     text = "\n".join(page_md[page] for page in sorted(page_md))
     references = []
     for doi in _text_dois(text):
@@ -425,19 +563,28 @@ def _cited_by_count(row):
 
 
 def extract_references(source: str, save: str | None = None, cache: bool = True) -> list[dict]:
-    """Find the DOIs that the seed papers cite, for one PDF or every PDF in a folder.
+    """Find the DOIs that the seed papers cite, in one PDF or in every PDF in a folder.
 
     The function reads every page of each seed paper and finds each DOI. It repairs a DOI
     that the PDF cut at a line end ("10.1007/s1096 4-015-0354-5"). It leaves out the DOI of
     the seed itself and the DOIs of its parts (figures, tables). A reference that prints no
     DOI cannot be found. A bad file does not stop the run: the summary names it.
+    It writes a CSV file only when you give `save`.
 
     Args:
-        source: Path of a PDF file, or of a folder with PDF files (the seed papers).
-        save: None writes no file. A path that ends with ".csv" writes that file. A folder
-            writes <folder>/references.csv. The CSV has the columns doi, n_seeds, cited_by;
-            a download tool can read its "doi" column.
-        cache: Read and write the page cache <pdf>.pages.json beside each PDF, as harvest() does.
+        source: The seed paper, or the folder of seed papers, to read.
+            Values: the path of one PDF file, or the path of a folder. The function looks in
+            the folder only, not in its subfolders.
+            Default: none. Give a path.
+        save: Where to write the rows as a CSV file, with the columns doi, n_seeds, cited_by.
+            A download tool can read its "doi" column.
+            Values: None, a path that ends with ".csv", or a folder (then
+            <folder>/references.csv). A missing folder is made.
+            Default None: write no file.
+        cache: Whether to use the page cache <pdf>.pages.json beside each PDF.
+            Values: True or False.
+            Default True: read the cache when it exists, else read the PDF and write the cache.
+            False reads every PDF again and writes no cache.
 
     Returns:
         A list of dicts, one per unique reference DOI, with the keys
@@ -450,8 +597,8 @@ def extract_references(source: str, save: str | None = None, cache: bool = True)
         ValueError: The source does not exist, or the folder has no PDF.
 
     Example:
-        >>> refs = extract_references("sample_files")                          # doctest: +SKIP
-        >>> refs[0]["doi"], refs[0]["n_seeds"]                                  # doctest: +SKIP
+        >>> refs = extract_references("sample_files")              # doctest: +SKIP
+        >>> refs[0]["doi"], refs[0]["n_seeds"]                      # doctest: +SKIP
         ('10.1037/0003-066x.55.1.68', 2)
     """
     pdf_paths, other_paths = _source_pdfs(source)

@@ -2,7 +2,8 @@
 # A normal push never publishes.
 #
 # How to release:
-#   1. Set the new version in pyproject.toml (for example 0.1.0), commit and push. Wait for a green CI.
+#   1. Set the new version in pyproject.toml (for example 0.1.0) and in the first cell of
+#      tutorials/TUTORIAL.ipynb, commit and push. Wait for a green CI.
 #   2. GitHub -> Releases -> Draft a new release -> tag v0.1.0 -> Generate release notes -> Publish release.
 #   3. Actions tab -> this run -> "Review deployments" -> approve. Then the upload starts.
 #
