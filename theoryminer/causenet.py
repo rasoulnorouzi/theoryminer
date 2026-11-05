@@ -222,9 +222,10 @@ def causenet(sentences: list, threshold: float = 0.8, mode: str = "neural", deci
             Default "neural".
         decision: The rule that makes a sentence causal.
             Values: "span_only": the sentence has a cause span and an effect span.
-            "cls+span": also the sentence classifier must say causal (the default before 0.2.0).
+            "cls+span": also the sentence classifier must say causal. This gives fewer relations.
             "cls_only": only the sentence classifier decides.
-            Default "span_only".
+            Default "span_only": a sentence is causal when the model finds a cause span and an
+            effect span in it.
         batch_size: The number of sentences in one model call.
             Values: a whole number, 1 or more. On a GPU a larger value is often faster. Lower it
             after a GPU "out of memory" error.

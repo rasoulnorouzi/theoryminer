@@ -5,198 +5,90 @@
 [![Documentation](https://img.shields.io/badge/docs-book-blue)](https://rasoulnorouzi.github.io/theoryminer/)
 [![Open the tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rasoulnorouzi/theoryminer/blob/main/tutorials/TUTORIAL.ipynb)
 
-Assemble theories from text. `theoryminer` reads a PDF, finds the sentences that make causal
-claims, extracts each cause → effect pair, and brings the many ways authors name the same
-construct together, with a thesaurus (ELSST) or without one. Then it draws a causal map: an
-interactive page where every arrow leads back to the sentences that claim it.
+`theoryminer` reads a set of research papers and makes a causal map from them.
 
-```
-PDF ──harvest()──► sentences ──causenet()──► relations (cause span → effect span)
-                                                  │
-              ┌───────────────────────────────────┼───────────────────────────┐
-              ▼                                   ▼                           ▼
-standardize_constructs()            pairwise_grouping() / clusterer()      (spans)
-span → top-k thesaurus concepts     spans → groups of similar spans
-                                                  │
-                                  ┌───────────────┴───────────────┐
-                                  ▼                               ▼
-                        standardize_groups()               label_groups()
-                        group → thesaurus concept          group → label from its own words
-                                  └───────────────┬───────────────┘
-                                                  ▼
-                        causal_map() ──► draw_map() (interactive page), save_map() (tables, GraphML)
-```
+A causal map shows the constructs of the papers as nodes, and the causal claims between them as
+arrows. An arrow from "social support" to "well-being" means that the papers claim that social
+support causes well-being. Click an arrow to read the sentences that make the claim, with the
+page and the DOI of each paper.
 
-Status: extraction, harmonisation and the causal map are written. The evaluation is planned.
+The documentation is at **https://rasoulnorouzi.github.io/theoryminer/**. It has one guide page
+for each step, with an example, all the arguments and the result.
 
 ## Install
 
-Install from PyPI with pip:
+`theoryminer` needs Python 3.10 or newer.
 
 ```bash
 pip install theoryminer
 ```
 
-The install includes UMAP for `clusterer(..., umap={...})`.
-
-The newest code on GitHub, before the next release:
-
-```bash
-pip install "theoryminer @ git+https://github.com/rasoulnorouzi/theoryminer.git"
-```
-
-In a notebook, such as Google Colab, put `%pip install` at the start of the first cell.
-The tutorial notebook does this for you: click the Colab badge above.
-
-To change the code, clone the repository and install it in editable mode:
-
-```bash
-git clone https://github.com/rasoulnorouzi/theoryminer.git
-cd theoryminer
-pip install -e ".[notebooks,dev,umap]"
-```
-
-### GPU
-
-You do not need to set anything. `causenet(sentences)` uses `device="auto"`: an NVIDIA GPU when
-PyTorch can see one, else the GPU of an Apple Silicon Mac, else the CPU. `device="cpu"`,
-`"cuda"` or `"mps"` choose one device.
-
-- **Google Colab:** choose a GPU runtime (Runtime → Change runtime type → T4 GPU). Colab already
-  has a GPU build of PyTorch, so pip installs nothing extra.
-- **Linux with an NVIDIA GPU:** the normal PyTorch from pip includes GPU support.
-- **Windows with an NVIDIA GPU:** pip gives a CPU-only PyTorch there. The package then runs on
-  the CPU, without errors. For the GPU, install PyTorch from https://pytorch.org first, then
-  install `theoryminer`.
-- **Apple Silicon Mac:** `"auto"` uses the Apple GPU. If the model fails there, it moves to the
-  CPU and the run goes on.
-
-The first call to `causenet()` downloads the SocioCausaNet model
-(`rasoultilburg/SocioCausaNet`) from the Hugging Face Hub. The first call to a harmonizer
-function downloads the sentence-transformer (`all-mpnet-base-v2` by default).
+In a notebook, such as Google Colab, put `%pip install theoryminer` in the first cell.
 
 ## Quick start
 
+Put your PDF files into one folder. This example uses the folder `sample_files/` of this
+repository, with 7 open-access papers.
+
 ```python
-from theoryminer import (harvest, extract_dois, extract_references, download_papers, causenet, clusterer,
-                         label_groups, standardize_constructs, causal_map, draw_map, save_map)
+from theoryminer import (harvest, causenet, clusterer, label_groups,
+                         causal_map, draw_map, save_map)
 
-data = harvest("raw_data/my_book.pdf", pages="12-540")   # clean sentences + a drop log
-data = harvest("sample_files")                          # or every PDF in a folder; each sentence has its paper's DOI and title
-dois = extract_dois("sample_files", save="outputs")     # optional: the DOI and title of each paper -> outputs/dois.csv
-refs = extract_references("sample_files", save="outputs")   # the DOIs that the papers cite -> outputs/references.csv
-report = download_papers(refs, "round_2", licences=["cc-by"])  # their open-access PDFs: the next snowball round
-relations = causenet(data["sentences"])                 # one dict per cause → effect pair
+# 1. Read the PDFs in the folder. Split their text into sentences.
+data = harvest("sample_files")
 
-groups = clusterer(relations)                           # group similar spans (HDBSCAN)
-names = label_groups(groups)                            # name each group from its own words
-matches = standardize_constructs(relations)             # or map each span to ELSST concepts
+# 2. Find the causal claims (cause -> effect) in the sentences.
+relations = causenet(data["sentences"])
 
-cmap = causal_map(relations, names)                     # nodes, edges, and the hidden edges
-draw_map(cmap)                                          # the interactive page, with the DOI of each paper
-save_map(cmap, "outputs/my_map")                        # nodes.csv, edges.csv, hidden.csv, map.graphml
+# 3. Put the causes and effects that mean the same construct into groups.
+groups = clusterer(relations)
+
+# 4. Give each group a name.
+names = label_groups(groups)
+
+# 5. Make the map, show it, and write it to files in the folder outputs/my_map.
+cmap = causal_map(relations, names)
+draw_map(cmap)
+save_map(cmap, "outputs/my_map")
 ```
 
-`harvest()` takes one PDF or a folder of PDFs. In a folder, a file that is not a PDF, or a PDF
-that cannot be read, does not stop the run. The drop log gets one row for it, with the reason.
-Each sentence also gets the DOI and title of its paper. The DOI comes from the most certain source:
-the log `downloads.csv` that `download_papers()` writes into the folder, the file name of a downloaded
-PDF, the PDF metadata, then the first DOI on pages 1 and 2. `causenet()` copies the DOI and title to each
-relation, so `draw_map(cmap)` links each sentence to its paper without an extra step.
+The first run downloads two models (about 850 MB in total). On a laptop CPU, step 2 takes about
+2 minutes for the 7 papers. A GPU is much faster: in Colab, select Runtime → Change runtime type →
+T4 GPU.
 
-`extract_references()` finds the DOIs in the references of seed papers, for a snowball search. It
-repairs the DOIs that a PDF cuts at a line end. On the sample papers, 214 of its 215 DOIs exist at
-doi.org. `download_papers()` downloads their open-access PDFs. It checks the licence of each paper
-with OpenAlex first (free, no key), so `licences=["cc-by"]` downloads only CC BY papers. Then it tries
-free sources in turn until one gives a real PDF: OpenAlex, per-publisher plugins, PubMed Central,
-Europe PMC, Unpaywall, Semantic Scholar, Crossref, OSF preprints, and the doi.org page. The tutorial,
-section 11, runs one snowball round.
+## The functions
 
-`download_papers()` gets open-access copies only. It does not log in to a publisher site and it
-does not use a browser, so a paper that is only behind a paywall stays `not_found`. Get such a paper
-through your library, and put the PDF into the folder with the others. Set `respect_robots=False`
-only when you have the right to do so. `tmsr-doi-downloader` stays as an opt-in source:
-`sources=[..., "tmsr-doi-downloader"]`.
+| Step | Function | What it does |
+|---|---|---|
+| Read | `harvest()` | reads PDF files and returns their sentences |
+| Read | `extract_dois()` | returns the DOI and the title of each PDF |
+| Read | `extract_references()` | returns the DOIs in the reference lists of the PDFs |
+| Download | `download_papers()` | downloads the free PDFs of a list of DOIs |
+| Find claims | `causenet()` | finds the cause and the effect of each causal claim |
+| Group | `clusterer()`, `pairwise_grouping()` | put the spans with the same meaning into groups |
+| Name | `label_groups()` | names each group with its own words |
+| Name | `standardize_groups()`, `standardize_constructs()` | name the groups or the spans with terms of the ELSST thesaurus |
+| Map | `causal_map()` | makes the nodes and the edges |
+| Map | `draw_map()` | shows the map as a web page |
+| Map | `save_map()` | writes the map to CSV files and a GraphML file |
 
-## The causal map
+## Tutorials
 
-A node is a construct: a group of spans, or a thesaurus concept. An arrow goes from a cause to an
-effect. Its width shows the number of papers that make the claim. On the page you can:
-
-- hover over a node or an arrow, and click an arrow to read all its sentences, with the DOI of each
-  paper (else its title, else its file name);
-- search as a filter: "age" shows only the matching nodes and their neighbours (or 2 steps, or only
-  the matches), and hides the rest;
-- filter by paper, by role ("cause only", "cause and effect", "effect only"), by two-way pairs, and with
-  `min papers`, `min sentences` and the self-loop switch; drag, zoom, and Reset;
-- save a picture as PNG, JPG or SVG: the whole map, the current view, or one node with its neighbours.
-
-The page is one HTML file that works offline. Nothing is deleted: a two-way claim keeps both arrows,
-and an edge that a filter hides stays in the data with its reason.
-
-## Sample papers
-
-`sample_files/` holds 7 open-access social-science papers with a CC BY licence.
-`sample_files/SOURCES.md` gives the title, authors, DOI and licence of each one.
-The tutorial and the tests use them.
-
-## Data you supply
-
-Give `harvest()` your own PDFs. In a clone, `raw_data/` is a good place for them: git ignores it.
-
-The ELSST thesaurus (release 5) ships inside the package as `theoryminer/data/ELSST_R5.rdf.gz`.
-`taxonomy="elsst"` needs no extra file. A full path to another SKOS `.rdf` or `.rdf.gz` file also
-works as `taxonomy=`. The thesaurus vectors are computed once and cached in
-`~/.cache/theoryminer/taxonomy`. Set the environment variable `THEORYMINER_CACHE_DIR` to use
-another folder. If the folder cannot be written, the functions still work; they only compute the
-vectors again in the next session.
-`label_groups()` needs no thesaurus at all.
-
-## Documentation
-
-The documentation is at **https://rasoulnorouzi.github.io/theoryminer/**: a guide for each
-step, the reference of each function, and every setting with its default.
-
-The learning material in the repository is in `tutorials/`:
-
-| file | what it is |
+| File | What it is |
 |---|---|
-| `tutorials/TUTORIAL.ipynb` | every function and every setting, with real output, and a full run on the sample papers, up to the causal map |
-| `tutorials/PACKAGE_LINE_BY_LINE.ipynb` | each function taken apart line by line and checked against the real one |
-| `tutorials/STRATEGIES.md` | the six ways to turn a thesaurus concept into text, and the test behind the defaults |
+| `tutorials/TUTORIAL.ipynb` | runs every function and every setting on the sample papers, with the output |
+| `tutorials/PACKAGE_LINE_BY_LINE.ipynb` | shows the code of each function, line by line |
 
-The notebooks work from `tutorials/` and from the repository root. The examples use the papers in
-`sample_files/`.
+## Development
 
-## Tests
-
-```bash
-pip install -e ".[dev]"
-pytest                 # the fast tests: no model download, a few seconds
-pytest -m slow         # the tests that load the real models (about 1 GB on the first run)
-```
-
-GitHub Actions runs the fast tests on each push, on Linux, Windows and macOS. It also builds the
-package and tests the built wheel. The slow tests run on each push to `main` and every Monday.
-
-## Releases
-
-A push to `main` never publishes. A release goes to PyPI in three steps:
-
-1. Set the new version in `pyproject.toml` and in the first cell of `tutorials/TUTORIAL.ipynb`
-   (`%pip install -q "theoryminer==<version>"`). Add a section to `CHANGELOG.md`, push, and wait for a green CI.
-2. On GitHub: **Releases → Draft a new release**, tag `v` plus the version (for example `v0.1.0`),
-   **Generate release notes**, **Publish release**.
-3. In the Actions tab, open the "Publish to PyPI" run and approve it (**Review deployments**).
-
-The workflow stops when the tag and the version differ. PyPI trusts the workflow through Trusted
-Publishing, so no token is stored in the repository.
+See the [Development page](https://rasoulnorouzi.github.io/theoryminer/development.html) for the
+tests, the documentation build and the releases.
 
 ## Licence
 
 The code has the MIT licence. See `LICENSE`.
 
-These files in this repository keep their own licence:
+These files keep their own licence:
 
 - `theoryminer/data/ELSST_R5.rdf.gz`: ELSST, © CESSDA, CC BY-SA 4.0. See `theoryminer/data/ELSST_LICENSE.md`.
 - `sample_files/*.pdf`: open-access papers, CC BY 4.0. See `sample_files/SOURCES.md`.

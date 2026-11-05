@@ -113,7 +113,7 @@ def standardize_constructs(items: list, taxonomy: str = "elsst", strategy: str =
         leaves_only: Which thesaurus concepts can be a match.
             Values: True: only the most specific concepts (the leaves). False: all concepts, the
             broad ones too, for example TRUST and MOTIVATION.
-            Default False: all concepts (the default since 0.2.0).
+            Default False: all concepts can be a match.
         cache: Whether to keep the thesaurus vectors on disk.
             Values: True or False.
             Default True: read the vectors from ~/.cache/theoryminer/taxonomy (or from the folder in
@@ -195,7 +195,7 @@ def standardize_groups(groups: dict, name_by: str = "mean_sim", taxonomy: str = 
         leaves_only: Which thesaurus concepts can be a match.
             Values: True: only the most specific concepts (the leaves). False: all concepts, the
             broad ones too, for example TRUST and MOTIVATION.
-            Default False: all concepts (the default since 0.2.0).
+            Default False: all concepts can be a match.
         cache: Whether to keep the thesaurus vectors on disk.
             Values: True or False.
             Default True: read the vectors from ~/.cache/theoryminer/taxonomy (or from the folder in

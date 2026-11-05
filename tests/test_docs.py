@@ -44,3 +44,9 @@ def test_an_aligned_key_list_becomes_a_table():
 def test_a_default_with_a_value_is_shown_as_code():
     assert make_api.render_item("Default None: read every page.") == "**Default** `None`: read every page."
     assert make_api.render_item("Values: True or False.") == "**Values:** True or False."
+
+
+def test_a_constant_default_shows_its_value():
+    node, path = make_api.find_function(make_api.PACKAGE_INIT, "extract_dois")
+    signature = make_api.signature_text(node, make_api.module_constants(path))
+    assert "first_pages: int = 2," in signature

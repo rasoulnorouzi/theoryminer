@@ -1,56 +1,89 @@
 # DOIs and references
 
-Two functions read DOIs from PDFs:
+Two functions read DOIs from your PDFs:
 
-| Function | What it finds | Use it to |
+| Function | What it finds | Why you use it |
 |---|---|---|
-| `extract_dois()` | the DOI and the title of each paper itself | label each paper on the map |
-| `extract_references()` | the DOIs that each paper cites | find the papers for the next round of a snowball search |
+| `extract_dois()` | the DOI and the title of each paper | to get a list of your papers |
+| `extract_references()` | the DOIs in the reference list of each paper | to find the papers that your papers cite, and download them |
 
-## The DOI of each paper
+You do not need `extract_dois()` to make a causal map. `harvest()` finds the DOI and the title of
+each paper itself, and the map shows them.
 
-You do not need `extract_dois()` for the map. `harvest()` already puts the DOI and the title on
-each sentence (`find_dois=True`), and `causenet()` copies them to each relation.
-
-Use `extract_dois()` when you want the list on its own:
+## `extract_dois()`: the DOI of each paper
 
 ```python
 from theoryminer import extract_dois
 
-rows = extract_dois("sample_files", save="outputs")      # writes outputs/dois.csv
+rows = extract_dois(
+    "sample_files",          # a PDF file, or a folder of PDF files
+    save="outputs",          # also write the rows to outputs/dois.csv
+)
 ```
 
-Each row has `doc_id`, `file`, `doi`, `source`, `title`, `page`, `status` and `note`.
+### The arguments
 
-The DOI comes from the most certain source, in this order:
+| Argument | What you give | Default |
+|---|---|---|
+| `source` | The path of one PDF file, or of a folder. The function reads the PDFs in the folder, not in its subfolders. | none; you must give it |
+| `save` | A folder (the function writes `dois.csv` in it), or a path that ends with `.csv`. | `None`: no file |
+| `first_pages` | The function looks for the DOI on pages 1 to `first_pages`. | `2` |
+| `cache` | `True` keeps the text of each PDF in a file beside the PDF, so the next run is faster. | `True` |
 
-1. `downloads.csv`, the log that `download_papers()` writes into the folder.
-2. The file name of a PDF that `download_papers()` saved, because it is made from the DOI.
-3. The subject or keywords field of the PDF metadata.
-4. The first DOI on page 1, else on page 2. Page 1 is sometimes a cover page.
+### The result
 
-The `source` column tells which rule gave the DOI. On 21 papers with a known DOI, this order found 20.
+A list with one dict for each PDF:
 
-The title is the largest text on page 1 that has at least 4 words. A shorter large text is
-usually a journal name, such as "PLOS ONE". When no text passes, the title comes from the PDF
-metadata.
+| Key | Meaning |
+|---|---|
+| `doc_id` | the file name without `.pdf` |
+| `file` | the file name |
+| `doi` | the DOI in lowercase, or `""` when the function finds none |
+| `source` | where the DOI came from (see below) |
+| `title` | the title of the paper, or `""` |
+| `page` | the page with the DOI, or `0` |
+| `status` | `"found"`, `"not_found"`, `"not_pdf"` or `"unreadable_pdf"` |
+| `note` | why a file has no DOI |
 
-## The DOIs in the references
+### Where the DOI comes from
+
+The function uses the first of these sources that gives a DOI:
+
+1. `"download_log"`: the file `downloads.csv` that `download_papers()` writes into the folder.
+2. `"file_name"`: the file name, when `download_papers()` saved the file.
+3. `"metadata"`: the metadata of the PDF.
+4. `"text"`: the first DOI on page 1, then on page 2. Page 1 is sometimes a cover page.
+
+## `extract_references()`: the DOIs that your papers cite
 
 ```python
 from theoryminer import extract_references
 
-refs = extract_references("sample_files", save="outputs")   # writes outputs/references.csv
+refs = extract_references(
+    "sample_files",          # your papers: one PDF file, or a folder of PDF files
+    save="outputs",          # also write the rows to outputs/references.csv
+)
 ```
 
-Each row has `doi`, `n_seeds` (how many of your papers cite it) and `cited_by` (which papers).
-The most cited DOIs come first.
+### The arguments
 
-The function repairs a DOI that the PDF cut at a line end, for example
-`10.1007/s1096 4-015-0354-5`. It leaves out the DOI of the paper itself and the DOIs of its parts
-(figures, tables). On the 7 sample papers it found 215 DOIs, and 214 of them exist at doi.org.
+| Argument | What you give | Default |
+|---|---|---|
+| `source` | The path of one PDF file, or of a folder. The function reads the PDFs in the folder, not in its subfolders. | none; you must give it |
+| `save` | A folder (the function writes `references.csv` in it), or a path that ends with `.csv`. | `None`: no file |
+| `cache` | `True` keeps the text of each PDF in a file beside the PDF, so the next run is faster. | `True` |
 
-A reference that prints no DOI cannot be found. The journal of one sample paper prints no DOIs in
-its references, so that paper gives 0 DOIs.
+### The result
 
-Give the result to [`download_papers()`](download.md) to get the PDFs.
+A list with one dict for each cited DOI. The DOI that most of your papers cite comes first.
+
+| Key | Meaning |
+|---|---|
+| `doi` | the cited DOI, in lowercase |
+| `n_seeds` | how many of your papers cite it |
+| `cited_by` | a list with the `doc_id` of each paper that cites it. In the CSV file, the list is one text, joined by ` \| `. |
+
+The function finds only the references that print a DOI. Some journals print no DOIs in their
+reference lists. A paper from such a journal gives no DOIs.
+
+Give the result to [`download_papers()`](download.md) to download the cited papers.

@@ -33,8 +33,6 @@
   - [causal_map()](reference/causal_map.md)
   - [draw_map()](reference/draw_map.md)
   - [save_map()](reference/save_map.md)
-- [Settings and defaults](settings.md)
-- [Data shapes](data-shapes.md)
 - [Thesaurus strategies](strategies.md)
 
 # Project

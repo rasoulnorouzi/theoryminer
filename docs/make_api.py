@@ -104,7 +104,28 @@ def escape(text):
     return text.replace("<", "&lt;").replace(">", "&gt;").replace("|", "\\|")
 
 
-def signature_text(node):
+def module_constants(path):
+    """Return {name: value as code text} for each constant with a plain value, such as MIN_SHARE = 0.67."""
+    with open(path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    constants = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = ast.unparse(node.value)
+    return constants
+
+
+def default_text(default, constants):
+    """Return the default of an argument as code text. A constant gives its value, so the reader sees 2."""
+    if isinstance(default, ast.Name) and default.id in constants:
+        return constants[default.id]
+    return ast.unparse(default)
+
+
+def signature_text(node, constants):
     """Return the signature of a function, one argument on each line."""
     arguments = node.args.args
     defaults = [None] * (len(arguments) - len(node.args.defaults)) + list(node.args.defaults)
@@ -114,7 +135,7 @@ def signature_text(node):
         if argument.annotation is not None:
             line += ": " + ast.unparse(argument.annotation)
         if default is not None:
-            line += " = " + ast.unparse(default)
+            line += " = " + default_text(default, constants)
         lines.append("    " + line + ",")
     result = ""
     if node.returns is not None:
@@ -266,7 +287,8 @@ def page_text(name, node, path):
     intro, sections = split_sections(doc)
     summary = escape(intro[0].strip())
     source = SOURCE_URL.format(path=path, line=node.lineno)
-    parts = [f"# {name}()", "", summary, "", "```python", signature_text(node), "```", "",
+    signature = signature_text(node, module_constants(path))
+    parts = [f"# {name}()", "", summary, "", "```python", signature, "```", "",
              f"Source: [`{path}`]({source})", "", render_intro(intro[1:])]
     for section, lines in sections.items():
         parts += ["", f"## {SECTION_TITLES[section]}", "", RENDERERS[section](lines)]

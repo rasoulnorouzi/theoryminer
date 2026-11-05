@@ -84,7 +84,7 @@ def label_groups(groups: dict, by: str = "keywords", top: int = 3) -> dict:
         by: How the name is made.
             Values: "keywords": the `top` keywords, joined by a space. "medoid": the central span.
             "both": the central span, " | ", then the keywords.
-            Default "keywords" (since 0.2.0).
+            Default "keywords": the name is the `top` keywords, for example "loneliness reducing alleviate".
         top: The number of keywords for each group.
             Values: a whole number, 1 or more.
             Default 3.

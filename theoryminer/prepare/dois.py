@@ -412,8 +412,11 @@ def extract_dois(source: str, save: str | None = None, first_pages: int = FIRST_
     Returns:
         A list of dicts, one per file, in file-name order, with the keys
             doc_id   the file name without ".pdf", as in harvest()
-            file     the path of the file
+            file     the file name, with ".pdf"
             doi      the DOI in lowercase, or "" when none was found
+            source   where the DOI came from: "download_log" (downloads.csv in the folder),
+                     "file_name", "metadata" (the PDF metadata), "text" (pages 1 to first_pages),
+                     or "" when none was found
             title    the title, or "" when none was found
             page     the page of the DOI, or 0 when none was found
             status   "found", "not_found", "not_pdf" or "unreadable_pdf"

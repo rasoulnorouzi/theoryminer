@@ -1,67 +1,39 @@
 # theoryminer
 
-`theoryminer` turns a set of research papers into a causal map.
+`theoryminer` reads a set of research papers and makes a causal map from them.
 
-You give it PDF files. It finds the sentences that claim a cause and an effect, and it extracts
-each cause → effect pair. Then it brings together the different names that authors use for the
-same construct. The result is an interactive map. Each arrow leads back to the sentences that
-claim it, with the page and the DOI of each paper.
+A causal map shows the constructs of the papers as nodes, and the causal claims between them as
+arrows. An arrow from "social support" to "well-being" means that the papers claim that social
+support causes well-being. You can click each arrow and read the sentences that make the claim,
+with the page and the DOI of each paper.
 
-## The pipeline
+## The steps
 
-```
-PDF ──harvest()──► sentences ──causenet()──► relations (cause span → effect span)
-                                                  │
-              ┌───────────────────────────────────┼───────────────────────────┐
-              ▼                                   ▼                           ▼
-standardize_constructs()            pairwise_grouping() / clusterer()      (spans)
-span → top-k thesaurus concepts     spans → groups of similar spans
-                                                  │
-                                  ┌───────────────┴───────────────┐
-                                  ▼                               ▼
-                        standardize_groups()               label_groups()
-                        group → thesaurus concept          group → label from its own words
-                                  └───────────────┬───────────────┘
-                                                  ▼
-                        causal_map() ──► draw_map()  the interactive page
-                                     └─► save_map()  CSV tables and GraphML
-```
+| Step | Function | Input | Output |
+|---|---|---|---|
+| 1. Read the PDFs | [`harvest()`](guide/harvest.md) | a folder of PDF files | the sentences |
+| 2. Find the causal claims | [`causenet()`](guide/causenet.md) | the sentences | the relations: cause, effect, sentence |
+| 3. Group the constructs | [`clusterer()`](guide/harmonizer.md) | the relations | groups of spans with the same meaning |
+| 4. Name the groups | [`label_groups()`](guide/harmonizer.md) | the groups | a name for each group |
+| 5. Make the map | [`causal_map()`](guide/causal-map.md) | the relations and the names | the nodes and the edges |
+| 6. Show and save the map | [`draw_map()`, `save_map()`](guide/causal-map.md) | the map | a web page, CSV files |
 
-Two more stages feed the pipeline with papers. `extract_references()` finds the DOIs that your
-papers cite. `download_papers()` downloads the open-access PDFs of those DOIs. Together they run a
-snowball search: the papers of one round give the references of the next round.
+Other functions do the same steps in a different way, or add steps:
 
-## What each step gives you
+- `pairwise_grouping()` makes groups in a different way from `clusterer()`.
+- `standardize_groups()` names the groups with the terms of a social-science thesaurus (ELSST).
+- `extract_references()` and `download_papers()` get the papers that your papers cite.
+  See [A snowball round](guide/snowball.md).
 
-| Step | Function | Result |
-|---|---|---|
-| Read the PDFs | `harvest()` | clean sentences, and a drop log with the reason for each dropped line |
-| Find causal claims | `causenet()` | one relation for each cause → effect pair |
-| Group the names | `pairwise_grouping()`, `clusterer()` | groups of spans that mean the same construct |
-| Name the groups | `label_groups()`, `standardize_groups()` | a name for each group, from its own words or from a thesaurus |
-| Build the map | `causal_map()` | nodes, edges and the hidden edges |
-| Show and save | `draw_map()`, `save_map()` | an offline HTML page, CSV tables and a GraphML file |
-
-## The rules behind the results
-
-- **Nothing is deleted.** A step that drops a sentence, or hides an edge, marks it and records the
-  reason. The drop log and the hidden edges are part of the result.
-- **A span stays as the author wrote it.** The only change is a repair of the tokenizer output.
-  That repair removes no word.
-- **Every result leads back to its source.** An edge knows its relations. A relation knows its
-  sentence, its page and its paper.
-- **A thesaurus is optional.** The package includes the ELSST thesaurus. Every step that uses it
-  has a twin that needs no thesaurus.
-
-## Status
-
-Extraction, the grouping and naming of constructs, and the causal map work. The evaluation
-against a theory specification that people made by hand is planned.
-
-## Where to start
+## How to start
 
 1. [Install](install.md) the package.
-2. Run the [quick start](quickstart.md) on the sample papers.
-3. Read the [guide](guide/harvest.md) for the step that you need.
+2. Run the [quick start](quickstart.md). It makes a map from 7 sample papers.
+3. Read the guide page of each step. Each page shows an example, all the arguments and the
+   result.
 
-The [tutorial notebook](tutorials.md) runs every function and every setting on 7 sample papers.
+## What the package does not change
+
+The package removes no data without a record. When a step removes a sentence or hides an edge, it
+writes the reason. A cause or an effect is always the words of the author. Each edge of the map
+leads back to its sentences, pages and papers.

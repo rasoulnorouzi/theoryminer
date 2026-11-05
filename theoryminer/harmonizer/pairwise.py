@@ -104,17 +104,19 @@ def pairwise_grouping(items: list, embeddings: str = "allmpnet", threshold: floa
             Values: "allmpnet" (sentence-transformers/all-mpnet-base-v2), "bge_base"
             (BAAI/bge-base-en-v1.5), "minilm" (sentence-transformers/all-MiniLM-L6-v2, small and
             fast), or the name of another sentence-transformers model on Hugging Face.
-            Default "allmpnet": the model of Paper 3. The default thresholds were calibrated for it.
+            Default "allmpnet": all-mpnet-base-v2. We tested the default `threshold` with this model.
         threshold: The cosine that a span needs to join a group.
             Values: a number from -1 to 1 (in practice 0.5 to 0.9). A higher value gives smaller,
             stricter groups.
-            Default 0.69: the value of Paper 3, calibrated for "allmpnet" with "single" linkage.
+            Default 0.69: two spans with a cosine of 0.69 or more can be in one group. Choose a new
+            value when you change `embeddings`.
         linkage: How a span is compared with a group.
             Values: "average": the mean cosine to all the members reaches `threshold`.
             "complete": the cosine to every member reaches `threshold`.
             "single": the cosine to one member reaches `threshold`. This can chain unrelated
-            spans into one large group (Paper 3's method).
-            Default "average" (since 0.2.0).
+            spans into one large group.
+            Default "average": a span joins a group when its mean cosine to the members is
+            `threshold` or more.
 
     Returns:
         {span: {"group": id, "central": span}}: for each span, the number of its group (0, 1, 2, ...)

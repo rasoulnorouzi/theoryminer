@@ -8,9 +8,7 @@
 pip install theoryminer
 ```
 
-The install includes UMAP (for `clusterer(..., umap={...})`) and `tmsr-doi-downloader`, an extra
-download source. On Python 3.10, pip leaves out `tmsr-doi-downloader`. The default download
-sources work on every version.
+This installs all the parts that the functions need.
 
 ## The newest code
 

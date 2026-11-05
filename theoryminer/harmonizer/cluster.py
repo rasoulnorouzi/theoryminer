@@ -34,13 +34,13 @@ def clusterer(items: list, embeddings: str = "allmpnet", min_cluster_size: int =
             Values: "allmpnet" (sentence-transformers/all-mpnet-base-v2), "bge_base"
             (BAAI/bge-base-en-v1.5), "minilm" (sentence-transformers/all-MiniLM-L6-v2, small and
             fast), or the name of another sentence-transformers model on Hugging Face.
-            Default "allmpnet": the model of Paper 3. The default thresholds were calibrated for it.
+            Default "allmpnet": all-mpnet-base-v2. We tested the default settings with this model.
         min_cluster_size: The smallest group.
             Values: a whole number, 2 or more.
-            Default 2: a pair of spans can be a group (the value of Paper 3).
+            Default 2: a pair of spans can be a group.
         min_samples: How many close neighbours a span needs to be in a dense region.
             Values: a whole number, 1 or more. A higher value gives fewer groups and more noise.
-            Default 2 (the value of Paper 3).
+            Default 2: a span needs 2 close neighbours to be in a group.
         umap: Whether to make the vectors shorter with UMAP before the clustering.
             Values: None, or a dict of UMAP settings, for example dict(n_components=5,
             n_neighbors=15, min_dist=0.0). The metric is cosine and random_state is 42, unless
